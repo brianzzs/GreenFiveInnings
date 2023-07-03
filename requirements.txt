@@ -1,0 +1,4 @@
+Flask
+jsonify
+MLB-StatsAPI
+Flask-Cors
