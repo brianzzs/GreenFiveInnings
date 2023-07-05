@@ -25,6 +25,27 @@ def get_nrfi_occurence(team_id, num_days):
     nrfi_occurence = calculate_nrfi_occurrence(first_inning_list)
     return nrfi_occurence
 
+def schedule(team_id):
+    today = datetime.date.today()
+    start_date = today
+    formatted_start_date = start_date.strftime("%m/%d/%Y")
+    next_games = statsapi.schedule(start_date=formatted_start_date, team=team_id)
+
+    return [
+        {
+            'game_id': game['game_id'],
+            'game_datetime': datetime.datetime.strptime(game['game_datetime'], '%Y-%m-%dT%H:%M:%SZ').strftime(
+                '%Y-%m-%d %H:%M:%S'),
+            'away_name': game['away_name'],
+            'away_id': game['away_id'],
+            'away_probable_pitcher': game['away_probable_pitcher'],
+            'home_name': game['home_name'],
+            'home_id': game['home_id'],
+            'home_probable_pitcher': game['home_probable_pitcher']
+        }
+        for game in next_games
+    ]
+
 
 def get_moneyline_scores_first_5_innings(team_id, num_days):
     game_ids = get_game_ids_last_n_days(team_id, num_days)
