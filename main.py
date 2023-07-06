@@ -38,4 +38,4 @@ def get_stats(team_id: int, num_days: int):
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
