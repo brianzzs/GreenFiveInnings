@@ -37,5 +37,9 @@ def get_stats(team_id: int, num_days: int):
                     "over1_5F5": overs_first_5_innings["over1_5F5"], "over2_5F5": overs_first_5_innings["over2_5F5"]})
 
 
+@app.route('/schedule_today', methods=['GET'])
+def get_schedule_today():
+    return jsonify(schedule(0))
+
 if __name__ == '__main__':
     app.run()

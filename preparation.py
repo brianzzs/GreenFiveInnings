@@ -29,7 +29,10 @@ def schedule(team_id):
     today = datetime.date.today()
     start_date = today
     formatted_start_date = start_date.strftime("%m/%d/%Y")
-    next_games = statsapi.schedule(start_date=formatted_start_date, team=team_id)
+    if(team_id == 0):
+        next_games = statsapi.schedule(start_date=formatted_start_date)
+    else:
+        next_games = statsapi.schedule(start_date=formatted_start_date, team=team_id)
 
     return [
         {
