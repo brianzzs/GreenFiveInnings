@@ -29,10 +29,20 @@ def schedule(team_id):
     today = datetime.date.today()
     start_date = today
     formatted_start_date = start_date.strftime("%m/%d/%Y")
+    message = "Today's Games"
     if(team_id == 0):
         next_games = statsapi.schedule(start_date=formatted_start_date)
     else:
         next_games = statsapi.schedule(start_date=formatted_start_date, team=team_id)
+
+    if next_games == []:
+        start_date = today + datetime.timedelta(days=1)
+        formatted_start_date = start_date.strftime("%m/%d/%Y")
+        message = "Tomorrow's Games"
+        if(team_id == 0):
+            next_games = statsapi.schedule(start_date=formatted_start_date)
+        else:
+            next_games = statsapi.schedule(start_date=formatted_start_date, team=team_id)
 
     return [
         {
@@ -44,7 +54,8 @@ def schedule(team_id):
             'away_probable_pitcher': game['away_probable_pitcher'],
             'home_name': game['home_name'],
             'home_id': game['home_id'],
-            'home_probable_pitcher': game['home_probable_pitcher']
+            'home_probable_pitcher': game['home_probable_pitcher'],
+            'message': message
         }
         for game in next_games
     ]
