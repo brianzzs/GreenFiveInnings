@@ -15,6 +15,82 @@ def get_game_ids_last_n_days(team_id, num_days):
     return [game['game_id'] for game in last_n_days_games]
 
 
+def get_game_details(game_id):
+    game = statsapi.get("game", {"gamePk": game_id})
+    return game
+
+
+def parse_stats(stats_string):
+    lines = stats_string.split("\n")
+    stats = {}
+
+    for line in lines:
+        parts = line.split(": ")
+        if len(parts) == 2:
+            key, value = parts
+            stats[key] = value
+
+    pitcher_stats = {
+        "wins": stats.get("wins", "Unknown"),
+        "losses": stats.get("losses", "Unknown"),
+        "era": stats.get("era", "Unknown")
+    }
+
+    return pitcher_stats
+
+
+def get_pitchers_info(data):
+    players = data['gameData']['players']
+
+    pitcher_info = {
+        'homePitcherID': 'TBD',
+        'homePitcher': 'TBD',
+        'homePitcherHand': 'TBD',
+        'homePitcherWins': 'TBD',
+        'homePitcherLosses': 'TBD',
+        'homePitcherERA': 'TBD',
+        'awayPitcherID': 'TBD',
+        'awayPitcher': 'TBD',
+        'awayPitcherHand': 'TBD',
+        'awayPitcherWins': 'TBD',
+        'awayPitcherLosses': 'TBD',
+        'awayPitcherERA': 'TBD',
+    }
+
+    if 'home' in data['gameData']['probablePitchers'] and data['gameData']['probablePitchers']['home']:
+        home_pitcher = data['gameData']['probablePitchers']['home']
+        home_pitcher_hand = players['ID' + str(home_pitcher['id'])]['pitchHand']['code'] if 'ID' + str(
+            home_pitcher['id']) in players else 'Unknown'
+        home_pitcher_stats = statsapi.player_stats(home_pitcher['id'], group="pitching", type="season")
+        home_pitcher_stats = parse_stats(home_pitcher_stats)
+        pitcher_info.update({
+            "homePitcherID": home_pitcher['id'],
+            "homePitcher": home_pitcher['fullName'],
+            "homePitcherHand": home_pitcher_hand,
+            "homePitcherWins": home_pitcher_stats['wins'],
+            "homePitcherLosses": home_pitcher_stats['losses'],
+            "homePitcherERA": home_pitcher_stats['era'],
+        })
+
+    if 'away' in data['gameData']['probablePitchers'] and data['gameData']['probablePitchers']['away']:
+        away_pitcher = data['gameData']['probablePitchers']['away']
+        away_pitcher_hand = players['ID' + str(away_pitcher['id'])]['pitchHand']['code'] if 'ID' + str(
+            away_pitcher['id']) in players else 'Unknown'
+        away_pitcher_stats = statsapi.player_stats(away_pitcher['id'], group="pitching", type="season")
+        away_pitcher_stats = parse_stats(away_pitcher_stats)
+        pitcher_info.update({
+            "awayPitcherID": away_pitcher['id'],
+            "awayPitcher": away_pitcher['fullName'],
+            "awayPitcherHand": away_pitcher_hand,
+            "awayPitcherWins": away_pitcher_stats['wins'],
+            "awayPitcherLosses": away_pitcher_stats['losses'],
+            "awayPitcherERA": away_pitcher_stats['era'],
+        })
+
+    return pitcher_info
+
+
+
 def get_nrfi_occurence(team_id, num_days):
     first_inning_list = []
     game_ids = get_game_ids_last_n_days(team_id, num_days)
@@ -25,40 +101,65 @@ def get_nrfi_occurence(team_id, num_days):
     nrfi_occurence = calculate_nrfi_occurrence(first_inning_list)
     return nrfi_occurence
 
+
 def schedule(team_id):
     today = datetime.date.today()
     start_date = today
     formatted_start_date = start_date.strftime("%m/%d/%Y")
-    message = "Today's Games"
     if(team_id == 0):
         next_games = statsapi.schedule(start_date=formatted_start_date)
     else:
         next_games = statsapi.schedule(start_date=formatted_start_date, team=team_id)
 
-    if next_games == []:
+    if not next_games:
         start_date = today + datetime.timedelta(days=1)
         formatted_start_date = start_date.strftime("%m/%d/%Y")
-        message = "Tomorrow's Games"
         if(team_id == 0):
             next_games = statsapi.schedule(start_date=formatted_start_date)
         else:
             next_games = statsapi.schedule(start_date=formatted_start_date, team=team_id)
 
-    return [
-        {
+    games_with_pitcher_info = []
+    for game in next_games:
+        game_details = get_game_details(game['game_id'])
+        pitcher_info = get_pitchers_info(game_details)
+
+        game_with_pitcher_info = {
             'game_id': game['game_id'],
-            'game_datetime': datetime.datetime.strptime(game['game_datetime'], '%Y-%m-%dT%H:%M:%SZ').strftime(
-                '%Y-%m-%d %H:%M:%S'),
-            'away_name': game['away_name'],
-            'away_id': game['away_id'],
-            'away_probable_pitcher': game['away_probable_pitcher'],
-            'home_name': game['home_name'],
-            'home_id': game['home_id'],
-            'home_probable_pitcher': game['home_probable_pitcher'],
-            'message': message
+            'game_datetime': datetime.datetime.strptime(game['game_datetime'], '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d %H:%M:%S'),
+            'away_team': {
+                'name': game['away_name'],
+                'id': game['away_id'],
+                'wins': game_details['gameData']['teams']['away']['record']['wins'],
+                'losses': game_details['gameData']['teams']['away']['record']['losses'],
+                'probable_pitcher': {
+                    'name': game['away_probable_pitcher'] if game['away_probable_pitcher'] else 'TBD',
+                    'id': pitcher_info['awayPitcherID'],
+                    'hand': pitcher_info['awayPitcherHand'],
+                    'wins': pitcher_info['awayPitcherWins'],
+                    'losses': pitcher_info['awayPitcherLosses'],
+                    'era': pitcher_info['awayPitcherERA'],
+                },
+            },
+            'home_team': {
+                'name': game['home_name'],
+                'id': game['home_id'],
+                'wins': game_details['gameData']['teams']['home']['record']['wins'],
+                'losses': game_details['gameData']['teams']['home']['record']['losses'],
+                'probable_pitcher': {
+                    'name': game['home_probable_pitcher'] if game['home_probable_pitcher'] else 'TBD',
+                    'id': pitcher_info['homePitcherID'],
+                    'hand': pitcher_info['homePitcherHand'],
+                    'wins': pitcher_info['homePitcherWins'],
+                    'losses': pitcher_info['homePitcherLosses'],
+                    'era': pitcher_info['homePitcherERA'],
+                },
+            },
         }
-        for game in next_games
-    ]
+        games_with_pitcher_info.append(game_with_pitcher_info)
+
+    return games_with_pitcher_info
+
 
 
 def get_moneyline_scores_first_5_innings(team_id, num_days):
