@@ -40,54 +40,44 @@ def parse_stats(stats_string):
 
 
 def get_pitchers_info(data):
+    probable_pitchers = data['gameData']['probablePitchers']
     players = data['gameData']['players']
 
-    pitcher_info = {
-        'homePitcherID': 'TBD',
-        'homePitcher': 'TBD',
-        'homePitcherHand': 'TBD',
-        'homePitcherWins': 'TBD',
-        'homePitcherLosses': 'TBD',
-        'homePitcherERA': 'TBD',
-        'awayPitcherID': 'TBD',
-        'awayPitcher': 'TBD',
-        'awayPitcherHand': 'TBD',
-        'awayPitcherWins': 'TBD',
-        'awayPitcherLosses': 'TBD',
-        'awayPitcherERA': 'TBD',
-    }
+    home_pitcher = probable_pitchers.get('home', {'fullName': 'TBD', 'id': 'TBD'})
+    away_pitcher = probable_pitchers.get('away', {'fullName': 'TBD', 'id': 'TBD'})
 
-    if 'home' in data['gameData']['probablePitchers'] and data['gameData']['probablePitchers']['home']:
-        home_pitcher = data['gameData']['probablePitchers']['home']
-        home_pitcher_hand = players['ID' + str(home_pitcher['id'])]['pitchHand']['code'] if 'ID' + str(
-            home_pitcher['id']) in players else 'Unknown'
+    home_pitcher_hand = players.get('ID' + str(home_pitcher['id']), {'pitchHand': {'code': 'Unknown'}})['pitchHand']['code']
+    away_pitcher_hand = players.get('ID' + str(away_pitcher['id']), {'pitchHand': {'code': 'Unknown'}})['pitchHand']['code']
+
+    try:
         home_pitcher_stats = statsapi.player_stats(home_pitcher['id'], group="pitching", type="season")
         home_pitcher_stats = parse_stats(home_pitcher_stats)
-        pitcher_info.update({
-            "homePitcherID": home_pitcher['id'],
-            "homePitcher": home_pitcher['fullName'],
-            "homePitcherHand": home_pitcher_hand,
-            "homePitcherWins": home_pitcher_stats['wins'],
-            "homePitcherLosses": home_pitcher_stats['losses'],
-            "homePitcherERA": home_pitcher_stats['era'],
-        })
+    except Exception:
+        home_pitcher_stats = {'wins': 'TBD', 'losses': 'TBD', 'era': 'TBD'}
 
-    if 'away' in data['gameData']['probablePitchers'] and data['gameData']['probablePitchers']['away']:
-        away_pitcher = data['gameData']['probablePitchers']['away']
-        away_pitcher_hand = players['ID' + str(away_pitcher['id'])]['pitchHand']['code'] if 'ID' + str(
-            away_pitcher['id']) in players else 'Unknown'
+    try:
         away_pitcher_stats = statsapi.player_stats(away_pitcher['id'], group="pitching", type="season")
         away_pitcher_stats = parse_stats(away_pitcher_stats)
-        pitcher_info.update({
-            "awayPitcherID": away_pitcher['id'],
-            "awayPitcher": away_pitcher['fullName'],
-            "awayPitcherHand": away_pitcher_hand,
-            "awayPitcherWins": away_pitcher_stats['wins'],
-            "awayPitcherLosses": away_pitcher_stats['losses'],
-            "awayPitcherERA": away_pitcher_stats['era'],
-        })
+    except Exception:
+        away_pitcher_stats = {'wins': 'TBD', 'losses': 'TBD', 'era': 'TBD'}
+
+    pitcher_info = {
+        "homePitcherID": home_pitcher['id'],
+        "homePitcher": home_pitcher['fullName'],
+        "homePitcherHand": home_pitcher_hand,
+        "homePitcherWins": home_pitcher_stats['wins'],
+        "homePitcherLosses": home_pitcher_stats['losses'],
+        "homePitcherERA": home_pitcher_stats['era'],
+        "awayPitcherID": away_pitcher['id'],
+        "awayPitcher": away_pitcher['fullName'],
+        "awayPitcherHand": away_pitcher_hand,
+        "awayPitcherWins": away_pitcher_stats['wins'],
+        "awayPitcherLosses": away_pitcher_stats['losses'],
+        "awayPitcherERA": away_pitcher_stats['era']
+    }
 
     return pitcher_info
+
 
 
 
