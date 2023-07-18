@@ -2,7 +2,7 @@ import datetime
 import statsapi
 from calculations import TEAM_NAMES, get_game_ids_last_n_days, get_ml_results, calculate_win_percentage, \
     get_first_inning, calculate_nrfi_occurrence, get_box_score_selected_team_F5, \
-    calculate_team_total_run_occurrence_percentage_5_innings
+    calculate_team_total_run_occurrence_percentage_5_innings, get_pitchers_info, parse_stats
 
 
 def get_game_ids_last_n_days(team_id, num_days):
@@ -18,67 +18,6 @@ def get_game_ids_last_n_days(team_id, num_days):
 def get_game_details(game_id):
     game = statsapi.get("game", {"gamePk": game_id})
     return game
-
-
-def parse_stats(stats_string):
-    lines = stats_string.split("\n")
-    stats = {}
-
-    for line in lines:
-        parts = line.split(": ")
-        if len(parts) == 2:
-            key, value = parts
-            stats[key] = value
-
-    pitcher_stats = {
-        "wins": stats.get("wins", "Unknown"),
-        "losses": stats.get("losses", "Unknown"),
-        "era": stats.get("era", "Unknown")
-    }
-
-    return pitcher_stats
-
-
-def get_pitchers_info(data):
-    probable_pitchers = data['gameData']['probablePitchers']
-    players = data['gameData']['players']
-
-    home_pitcher = probable_pitchers.get('home', {'fullName': 'TBD', 'id': 'TBD'})
-    away_pitcher = probable_pitchers.get('away', {'fullName': 'TBD', 'id': 'TBD'})
-
-    home_pitcher_hand = players.get('ID' + str(home_pitcher['id']), {'pitchHand': {'code': 'Unknown'}})['pitchHand']['code']
-    away_pitcher_hand = players.get('ID' + str(away_pitcher['id']), {'pitchHand': {'code': 'Unknown'}})['pitchHand']['code']
-
-    try:
-        home_pitcher_stats = statsapi.player_stats(home_pitcher['id'], group="pitching", type="season")
-        home_pitcher_stats = parse_stats(home_pitcher_stats)
-    except Exception:
-        home_pitcher_stats = {'wins': 'TBD', 'losses': 'TBD', 'era': 'TBD'}
-
-    try:
-        away_pitcher_stats = statsapi.player_stats(away_pitcher['id'], group="pitching", type="season")
-        away_pitcher_stats = parse_stats(away_pitcher_stats)
-    except Exception:
-        away_pitcher_stats = {'wins': 'TBD', 'losses': 'TBD', 'era': 'TBD'}
-
-    pitcher_info = {
-        "homePitcherID": home_pitcher['id'],
-        "homePitcher": home_pitcher['fullName'],
-        "homePitcherHand": home_pitcher_hand,
-        "homePitcherWins": home_pitcher_stats['wins'],
-        "homePitcherLosses": home_pitcher_stats['losses'],
-        "homePitcherERA": home_pitcher_stats['era'],
-        "awayPitcherID": away_pitcher['id'],
-        "awayPitcher": away_pitcher['fullName'],
-        "awayPitcherHand": away_pitcher_hand,
-        "awayPitcherWins": away_pitcher_stats['wins'],
-        "awayPitcherLosses": away_pitcher_stats['losses'],
-        "awayPitcherERA": away_pitcher_stats['era']
-    }
-
-    return pitcher_info
-
-
 
 
 def get_nrfi_occurence(team_id, num_days):
