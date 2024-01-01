@@ -6,11 +6,13 @@ from calculations import TEAM_NAMES, get_game_ids_last_n_days, get_ml_results, c
 
 
 def get_game_ids_last_n_days(team_id, num_days):
-    today = datetime.date.today()
-    start_date = today - datetime.timedelta(days=num_days)
-    end_date = today - datetime.timedelta(days=1)
-    formatted_start_date = start_date.strftime("%m/%d/%Y")
-    formatted_end_date = end_date.strftime("%m/%d/%Y")
+    #  today = datetime.date.today()
+    # start_date = today - datetime.timedelta(days=num_days)
+    #end_date = today - datetime.timedelta(days=1)
+    #formatted_start_date = start_date.strftime("%m/%d/%Y")
+    # formatted_end_date = end_date.strftime("%m/%d/%Y")
+    formatted_start_date = "04/01/2023"
+    formatted_end_date = "10/1/202"
     last_n_days_games = statsapi.schedule(start_date=formatted_start_date, end_date=formatted_end_date, team=team_id)
     return [game['game_id'] for game in last_n_days_games]
 
