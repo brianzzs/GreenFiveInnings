@@ -96,8 +96,10 @@ def get_game_ids_last_n_days(team_id, num_days):
     today = datetime.date.today()
     start_date = today - datetime.timedelta(days=num_days)
     end_date = today - datetime.timedelta(days=1)
-    formatted_start_date = start_date.strftime("%m/%d/%Y")
-    formatted_end_date = end_date.strftime("%m/%d/%Y")
+   # formatted_start_date = start_date.strftime("%m/%d/%Y")
+  #  formatted_end_date = end_date.strftime("%m/%d/%Y")
+    formatted_start_date = "09/15/2023"
+    formatted_end_date = "10/1/2023"
     last_n_days_games = statsapi.schedule(start_date=formatted_start_date, end_date=formatted_end_date, team=team_id)
     return [game['game_id'] for game in last_n_days_games]
 
@@ -106,8 +108,10 @@ def get_ml_results(game_id, num_days):
     today = datetime.date.today()
     start_date = today - datetime.timedelta(days=num_days)
     end_date = today - datetime.timedelta(days=1)
-    formatted_start_date = start_date.strftime("%m/%d/%Y")
-    formatted_end_date = end_date.strftime("%m/%d/%Y")
+  #  formatted_start_date = start_date.strftime("%m/%d/%Y")
+   # formatted_end_date = end_date.strftime("%m/%d/%Y")
+    formatted_start_date = "09/15/2023"
+    formatted_end_date = "10/1/2023"
     game = statsapi.get("game", {"gamePk": game_id, "startDate": formatted_start_date, "endDate": formatted_end_date})
     linescore_data = game["liveData"]["linescore"]["innings"]
     first_5_innings = linescore_data[:5]
@@ -186,8 +190,10 @@ def get_first_inning(game_id, num_days, team_id):
     today = datetime.date.today()
     start_date = today - datetime.timedelta(days=num_days)
     end_date = today - datetime.timedelta(days=1)
-    formatted_start_date = start_date.strftime("%m/%d/%Y")
-    formatted_end_date = end_date.strftime("%m/%d/%Y")
+  #  formatted_start_date = start_date.strftime("%m/%d/%Y")
+  #  formatted_end_date = end_date.strftime("%m/%d/%Y")
+    formatted_start_date = "09/15/2023"
+    formatted_end_date = "10/1/2023"
     game = statsapi.get("game", {"gamePk": game_id, "startDate": formatted_start_date, "endDate": formatted_end_date})
     linescore_data = game["liveData"]["linescore"]["innings"]
     first_5_innings = linescore_data[:1]
@@ -212,8 +218,10 @@ def get_box_score_selected_team_F5(game_id, team_id, num_days):
     today = datetime.date.today()
     start_date = today - datetime.timedelta(days=num_days)
     end_date = today - datetime.timedelta(days=1)  # Adjusted to be one day prior to today
-    formatted_start_date = start_date.strftime("%m/%d/%Y")
-    formatted_end_date = end_date.strftime("%m/%d/%Y")
+   # formatted_start_date = start_date.strftime("%m/%d/%Y")
+   # formatted_end_date = end_date.strftime("%m/%d/%Y")
+    formatted_start_date = "09/15/2023"
+    formatted_end_date = "10/1/2023"
     game = statsapi.get("game", {"gamePk": game_id, "startDate": formatted_start_date, "endDate": formatted_end_date})
     linescore_data = game["liveData"]["linescore"]["innings"]
     first_5_innings = linescore_data[:5]

@@ -2,7 +2,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from calculations import TEAM_NAMES, calculate_win_percentage
 from preparation import get_nrfi_occurence, get_moneyline_scores_first_5_innings, \
-    get_overs_first_5_innings, schedule
+    get_overs_first_5_innings, schedule, get_team_stats
 
 app = Flask(__name__)
 CORS(app)  # This will enable CORS for all routes
@@ -40,6 +40,24 @@ def get_stats(team_id: int, num_days: int):
 @app.route('/schedule_today', methods=['GET'])
 def get_schedule_today():
     return jsonify(schedule(0))
+
+
+@app.route('/compare-teams/<int:team_id1>/<int:team_id2>', methods=['GET'])
+def compare_teams(team_id1, team_id2):
+    stats_team1 = get_team_stats(team_id1, 20)
+    stats_team2 = get_team_stats(team_id2, 20)
+
+    combined_stats = {
+        'team1': {
+            'id': team_id1,
+            'stats': stats_team1
+        },
+        'team2': {
+            'id': team_id2,
+            'stats': stats_team2
+        }
+    }
+    return combined_stats
 
 if __name__ == '__main__':
     app.run()

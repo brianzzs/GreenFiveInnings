@@ -11,8 +11,8 @@ def get_game_ids_last_n_days(team_id, num_days):
     #end_date = today - datetime.timedelta(days=1)
     #formatted_start_date = start_date.strftime("%m/%d/%Y")
     # formatted_end_date = end_date.strftime("%m/%d/%Y")
-    formatted_start_date = "04/01/2023"
-    formatted_end_date = "10/1/202"
+    formatted_start_date = "09/15/2023"
+    formatted_end_date = "10/1/2023"
     last_n_days_games = statsapi.schedule(start_date=formatted_start_date, end_date=formatted_end_date, team=team_id)
     return [game['game_id'] for game in last_n_days_games]
 
@@ -36,7 +36,8 @@ def get_nrfi_occurence(team_id, num_days):
 def schedule(team_id):
     today = datetime.date.today()
     start_date = today
-    formatted_start_date = start_date.strftime("%m/%d/%Y")
+    #formatted_start_date = start_date.strftime("%m/%d/%Y")
+    formatted_start_date = "09/15/2023"
     if(team_id == 0):
         next_games = statsapi.schedule(start_date=formatted_start_date)
     else:
@@ -123,3 +124,13 @@ def get_list_of_runs_selected_team(game_id, team_id, num_days):
     list_of_runs.append(runs_scored)
 
     return list_of_runs
+
+
+def get_team_stats(team_id, num_days):
+    return {
+        'nrfi': get_nrfi_occurence(team_id, num_days),
+        'moneyline_scores': get_moneyline_scores_first_5_innings(team_id, num_days),
+        'win_percentage': calculate_win_percentage(get_moneyline_scores_first_5_innings(team_id, num_days), team_id),
+        'overs_first_5_innings': get_overs_first_5_innings(team_id, num_days),
+        'list_of_runs': get_list_of_runs_selected_team(team_id, team_id, num_days),
+    }
