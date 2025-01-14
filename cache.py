@@ -47,6 +47,26 @@ def initialize_db():
         )
         """
     )
+
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tb_PitcherData (
+            game_id INTEGER PRIMARY KEY,
+            home_pitcher_id INTEGER,
+            home_pitcher_name TEXT,
+            home_pitcher_hand TEXT,
+            home_pitcher_wins TEXT,
+            home_pitcher_losses TEXT,
+            home_pitcher_era TEXT,
+            away_pitcher_id INTEGER,
+            away_pitcher_name TEXT,
+            away_pitcher_hand TEXT,
+            away_pitcher_wins TEXT,
+            away_pitcher_losses TEXT,
+            away_pitcher_era TEXT
+        )
+        """
+    )
     db.commit()
 
 
@@ -119,7 +139,6 @@ def fetch_game_data(game_id):
     db = get_db()
     cursor = db.cursor()
 
-    # Check if data is already cached
     cursor.execute(
         """
         SELECT 
@@ -195,3 +214,131 @@ def fetch_game_data(game_id):
     except Exception as e:
         print(f"Error fetching game data: {e}")
         raise RuntimeError(f"Unable to fetch data for game ID {game_id}")
+
+
+def fetch_and_cache_pitcher_info(game_id, data=None):
+    db = get_db()
+    cursor = db.cursor()
+
+    cursor.execute(
+        """
+        SELECT 
+            home_pitcher_id, home_pitcher_name, home_pitcher_hand, 
+            home_pitcher_wins, home_pitcher_losses, home_pitcher_era,
+            away_pitcher_id, away_pitcher_name, away_pitcher_hand, 
+            away_pitcher_wins, away_pitcher_losses, away_pitcher_era
+        FROM tb_PitcherData WHERE game_id = ?
+        """,
+        (game_id,),
+    )
+    result = cursor.fetchone()
+
+    if result:
+        return {
+            "homePitcherID": result["home_pitcher_id"],
+            "homePitcher": result["home_pitcher_name"],
+            "homePitcherHand": result["home_pitcher_hand"],
+            "homePitcherWins": result["home_pitcher_wins"],
+            "homePitcherLosses": result["home_pitcher_losses"],
+            "homePitcherERA": result["home_pitcher_era"],
+            "awayPitcherID": result["away_pitcher_id"],
+            "awayPitcher": result["away_pitcher_name"],
+            "awayPitcherHand": result["away_pitcher_hand"],
+            "awayPitcherWins": result["away_pitcher_wins"],
+            "awayPitcherLosses": result["away_pitcher_losses"],
+            "awayPitcherERA": result["away_pitcher_era"],
+        }
+
+    if not data:
+        data = statsapi.get("game", {"gamePk": game_id})
+
+    probable_pitchers = data["gameData"]["probablePitchers"]
+    players = data["gameData"]["players"]
+
+    home_pitcher = probable_pitchers.get("home", {"fullName": "TBD", "id": "TBD"})
+    away_pitcher = probable_pitchers.get("away", {"fullName": "TBD", "id": "TBD"})
+
+    home_pitcher_hand = players.get(
+        "ID" + str(home_pitcher["id"]), {"pitchHand": {"code": "Unknown"}}
+    )["pitchHand"]["code"]
+    away_pitcher_hand = players.get(
+        "ID" + str(away_pitcher["id"]), {"pitchHand": {"code": "Unknown"}}
+    )["pitchHand"]["code"]
+
+    try:
+        home_pitcher_stats = statsapi.player_stats(
+            home_pitcher["id"], group="pitching", type="season"
+        )
+        home_pitcher_stats = parse_stats(home_pitcher_stats)
+    except Exception:
+        home_pitcher_stats = {"wins": "TBD", "losses": "TBD", "era": "TBD"}
+
+    try:
+        away_pitcher_stats = statsapi.player_stats(
+            away_pitcher["id"], group="pitching", type="season"
+        )
+        away_pitcher_stats = parse_stats(away_pitcher_stats)
+    except Exception:
+        away_pitcher_stats = {"wins": "TBD", "losses": "TBD", "era": "TBD"}
+
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO tb_PitcherData (
+            game_id, 
+            home_pitcher_id, home_pitcher_name, home_pitcher_hand, 
+            home_pitcher_wins, home_pitcher_losses, home_pitcher_era, 
+            away_pitcher_id, away_pitcher_name, away_pitcher_hand, 
+            away_pitcher_wins, away_pitcher_losses, away_pitcher_era
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            game_id,
+            home_pitcher["id"],
+            home_pitcher["fullName"],
+            home_pitcher_hand,
+            home_pitcher_stats["wins"],
+            home_pitcher_stats["losses"],
+            home_pitcher_stats["era"],
+            away_pitcher["id"],
+            away_pitcher["fullName"],
+            away_pitcher_hand,
+            away_pitcher_stats["wins"],
+            away_pitcher_stats["losses"],
+            away_pitcher_stats["era"],
+        ),
+    )
+    db.commit()
+
+    return {
+        "homePitcherID": home_pitcher["id"],
+        "homePitcher": home_pitcher["fullName"],
+        "homePitcherHand": home_pitcher_hand,
+        "homePitcherWins": home_pitcher_stats["wins"],
+        "homePitcherLosses": home_pitcher_stats["losses"],
+        "homePitcherERA": home_pitcher_stats["era"],
+        "awayPitcherID": away_pitcher["id"],
+        "awayPitcher": away_pitcher["fullName"],
+        "awayPitcherHand": away_pitcher_hand,
+        "awayPitcherWins": away_pitcher_stats["wins"],
+        "awayPitcherLosses": away_pitcher_stats["losses"],
+        "awayPitcherERA": away_pitcher_stats["era"],
+    }
+
+
+def parse_stats(stats_string):
+    lines = stats_string.split("\n")
+    stats = {}
+
+    for line in lines:
+        parts = line.split(": ")
+        if len(parts) == 2:
+            key, value = parts
+            stats[key] = value
+
+    pitcher_stats = {
+        "wins": stats.get("wins", "Unknown"),
+        "losses": stats.get("losses", "Unknown"),
+        "era": stats.get("era", "Unknown"),
+    }
+
+    return pitcher_stats

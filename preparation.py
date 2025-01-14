@@ -6,9 +6,9 @@ from calculations import (
     calculate_win_percentage,
     get_first_inning,
     calculate_nrfi_occurrence,
-    get_box_score_selected_team_F5,
+    get_team_box_score_first_five,
     calculate_team_total_run_occurrence_percentage_5_innings,
-    get_pitchers_info,
+    fetch_and_cache_pitcher_info,
 )
 
 from cache import fetch_and_cache_game_ids_span, fetch_and_cache_game_ids_span
@@ -53,7 +53,7 @@ def schedule(team_id):
     games_with_pitcher_info = []
     for game in next_games:
         game_details = get_game_details(game["game_id"])
-        pitcher_info = get_pitchers_info(game_details)
+        pitcher_info = fetch_and_cache_pitcher_info(game_details)
 
         game_with_pitcher_info = {
             "game_id": game["game_id"],
@@ -106,7 +106,7 @@ def get_moneyline_scores_first_5_innings(team_id, num_days):
     game_ids = fetch_and_cache_game_ids_span(team_id, num_days)
     results = []
     for game_id in game_ids:
-        game_result = get_ml_results(game_id, num_days)
+        game_result = get_ml_results(game_id)
         results.append(game_result)
 
     return results
@@ -117,7 +117,7 @@ def get_overs_first_5_innings(team_id, num_days):
     runs_per_game = []
     list_of_runs_f5 = []
     for game_id in game_ids:
-        list_of_runs_f5 = get_box_score_selected_team_F5(game_id, team_id, num_days)
+        list_of_runs_f5 = get_team_box_score_first_five(game_id, team_id)
         runs_per_game.append(list_of_runs_f5)
 
     occurence_over_1_5 = calculate_team_total_run_occurrence_percentage_5_innings(
@@ -130,9 +130,9 @@ def get_overs_first_5_innings(team_id, num_days):
     return {"over1_5F5": occurence_over_1_5, "over2_5F5": occurence_over_2_5}
 
 
-def get_list_of_runs_selected_team(game_id, team_id, num_days):
+def get_list_of_runs_selected_team(game_id, team_id):
     list_of_runs = []
-    runs_scored = get_box_score_selected_team_F5(game_id, team_id, num_days)
+    runs_scored = get_team_box_score_first_five(game_id, team_id)
     list_of_runs.append(runs_scored)
 
     return list_of_runs
@@ -146,5 +146,5 @@ def get_team_stats(team_id, num_days):
             get_moneyline_scores_first_5_innings(team_id, num_days), team_id
         ),
         "overs_first_5_innings": get_overs_first_5_innings(team_id, num_days),
-        "list_of_runs": get_list_of_runs_selected_team(team_id, team_id, num_days),
+        "list_of_runs": get_list_of_runs_selected_team(team_id, team_id),
     }

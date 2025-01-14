@@ -3,6 +3,7 @@ import statsapi
 from cache import (
     fetch_and_cache_linescore,
     fetch_game_data,
+    fetch_and_cache_pitcher_info,
 )
 
 TEAM_NAMES = {
@@ -39,111 +40,24 @@ TEAM_NAMES = {
 }
 
 
-def parse_stats(stats_string):
-    lines = stats_string.split("\n")
-    stats = {}
+def get_ml_results(game_id):
+    linescore_data = fetch_and_cache_linescore(game_id)
+    game_data = fetch_game_data(game_id)
 
-    for line in lines:
-        parts = line.split(": ")
-        if len(parts) == 2:
-            key, value = parts
-            stats[key] = value
-
-    pitcher_stats = {
-        "wins": stats.get("wins", "Unknown"),
-        "losses": stats.get("losses", "Unknown"),
-        "era": stats.get("era", "Unknown"),
-    }
-
-    return pitcher_stats
-
-
-def get_pitchers_info(data):
-    probable_pitchers = data["gameData"]["probablePitchers"]
-    players = data["gameData"]["players"]
-
-    home_pitcher = probable_pitchers.get("home", {"fullName": "TBD", "id": "TBD"})
-    away_pitcher = probable_pitchers.get("away", {"fullName": "TBD", "id": "TBD"})
-
-    home_pitcher_hand = players.get(
-        "ID" + str(home_pitcher["id"]), {"pitchHand": {"code": "Unknown"}}
-    )["pitchHand"]["code"]
-    away_pitcher_hand = players.get(
-        "ID" + str(away_pitcher["id"]), {"pitchHand": {"code": "Unknown"}}
-    )["pitchHand"]["code"]
-
-    try:
-        home_pitcher_stats = statsapi.player_stats(
-            home_pitcher["id"], group="pitching", type="season"
-        )
-        home_pitcher_stats = parse_stats(home_pitcher_stats)
-    except Exception:
-        home_pitcher_stats = {"wins": "TBD", "losses": "TBD", "era": "TBD"}
-
-    try:
-        away_pitcher_stats = statsapi.player_stats(
-            away_pitcher["id"], group="pitching", type="season"
-        )
-        away_pitcher_stats = parse_stats(away_pitcher_stats)
-    except Exception:
-        away_pitcher_stats = {"wins": "TBD", "losses": "TBD", "era": "TBD"}
-
-    pitcher_info = {
-        "homePitcherID": home_pitcher["id"],
-        "homePitcher": home_pitcher["fullName"],
-        "homePitcherHand": home_pitcher_hand,
-        "homePitcherWins": home_pitcher_stats["wins"],
-        "homePitcherLosses": home_pitcher_stats["losses"],
-        "homePitcherERA": home_pitcher_stats["era"],
-        "awayPitcherID": away_pitcher["id"],
-        "awayPitcher": away_pitcher["fullName"],
-        "awayPitcherHand": away_pitcher_hand,
-        "awayPitcherWins": away_pitcher_stats["wins"],
-        "awayPitcherLosses": away_pitcher_stats["losses"],
-        "awayPitcherERA": away_pitcher_stats["era"],
-    }
-
-    return pitcher_info
-
-
-def get_ml_results(game_id, num_days):
-    today = datetime.date.today()
-    start_date = today - datetime.timedelta(days=num_days)
-    end_date = today - datetime.timedelta(days=1)
-    #  formatted_start_date = start_date.strftime("%m/%d/%Y")
-    # formatted_end_date = end_date.strftime("%m/%d/%Y")
-    formatted_start_date = "09/15/2023"
-    formatted_end_date = "10/1/2023"
-    game = statsapi.get(
-        "game",
-        {
-            "gamePk": game_id,
-            "startDate": formatted_start_date,
-            "endDate": formatted_end_date,
-        },
-    )
-    linescore_data = game["liveData"]["linescore"]["innings"]
     first_5_innings = linescore_data[:5]
 
-    runs_home_team = []
-    runs_away_team = []
+    runs_home_team = [inning["home"]["runs"] for inning in first_5_innings]
+    runs_away_team = [inning["away"]["runs"] for inning in first_5_innings]
 
-    for inning in first_5_innings:
-        home_team_runs = inning["home"]["runs"]
-        away_team_runs = inning["away"]["runs"]
-
-        runs_home_team.append(home_team_runs)
-        runs_away_team.append(away_team_runs)
-
-    home_team_id = game["gameData"]["teams"]["home"]["id"]
+    home_team_id = game_data["home_team_id"]
     home_team_name = TEAM_NAMES.get(home_team_id, "Unknown Team")
-    away_team_id = game["gameData"]["teams"]["away"]["id"]
+    away_team_id = game_data["away_team_id"]
     away_team_name = TEAM_NAMES.get(away_team_id, "Unknown Team")
 
     final_runs_home_team = sum(runs_home_team)
     final_runs_away_team = sum(runs_away_team)
 
-    pitcher_info = get_pitchers_info(game)
+    pitcher_info = fetch_and_cache_pitcher_info(game_id)
 
     return {
         "away_team": {
@@ -219,7 +133,7 @@ def calculate_nrfi_occurrence(list_of_runs):
     return rounded_percentage
 
 
-def get_box_score_selected_team_F5(game_id, team_id, num_days):
+def get_team_box_score_first_five(game_id, team_id):
     linescore_data = fetch_and_cache_linescore(game_id)
     game_data = fetch_game_data(game_id)
     first_5_innings = linescore_data[:5]
