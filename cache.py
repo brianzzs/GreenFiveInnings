@@ -151,7 +151,6 @@ def fetch_game_data(game_id):
     result = cursor.fetchone()
 
     if result:
-        # Return cached data
         return {
             "game_id": result["game_id"],
             "away_team_id": result["away_team_id"],
@@ -163,13 +162,11 @@ def fetch_game_data(game_id):
             "home_pitcher_id": result["home_pitcher_id"],
         }
 
-    # Fetch data from the API
     try:
         game = statsapi.get("game", {"gamePk": game_id})
         linescore_data = game["liveData"]["linescore"]["innings"]
         game_data = game["gameData"]
 
-        # Extract required data
         away_team_id = game_data["teams"]["away"]["id"]
         home_team_id = game_data["teams"]["home"]["id"]
         game_datetime = game_data["datetime"]["dateTime"]
@@ -178,7 +175,6 @@ def fetch_game_data(game_id):
         away_pitcher_id = game_data["probablePitchers"]["away"]["id"]
         home_pitcher_id = game_data["probablePitchers"]["home"]["id"]
 
-        # Cache the fetched data in the database
         cursor.execute(
             """
             INSERT OR IGNORE INTO tb_GameData (
@@ -199,7 +195,6 @@ def fetch_game_data(game_id):
         )
         db.commit()
 
-        # Return the fetched data
         return {
             "game_id": game_id,
             "away_team_id": away_team_id,
