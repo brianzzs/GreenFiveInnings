@@ -52,7 +52,7 @@ def schedule(team_id):
 
     games_with_pitcher_info = []
     for game in next_games:
-        game_details = get_game_details(game["game_id"])
+        game_details = get_game_details(game["gamePk"])
         pitcher_info = fetch_and_cache_pitcher_info(game_details)
 
         game_with_pitcher_info = {
