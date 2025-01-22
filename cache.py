@@ -214,6 +214,7 @@ def fetch_game_data(game_id):
 def fetch_and_cache_pitcher_info(game_id, data=None):
     db = get_db()
     cursor = db.cursor()
+    game_id = game_id["gamePk"]
 
     cursor.execute(
         """
