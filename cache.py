@@ -70,26 +70,38 @@ def initialize_db():
     db.commit()
 
 
-def fetch_and_cache_game_ids_span(team_id, num_days):
+def fetch_and_cache_game_ids_span(team_id, num_days=None):
     db = get_db()
     cursor = db.cursor()
+
+    # Define the hardcoded base date
+    base_date = datetime.date(2024, 9, 29)
+
+    # If num_days is provided, calculate start date dynamically
+    if num_days is not None:
+        start_date = base_date - datetime.timedelta(days=num_days)
+        formatted_start_date = start_date.strftime("%m/%d/%Y")
+    else:
+        formatted_start_date = base_date.strftime("%m/%d/%Y")
+
+    # Calculate end_date dynamically for num_days
+    end_date = base_date
+    formatted_end_date = end_date.strftime("%m/%d/%Y")
+
+    # Check if data exists in the database
     cursor.execute(
         """
         SELECT id FROM tb_GameId
-        WHERE game_datetime >= datetime('now', ? || ' days')
-    """,
-        (str(-num_days),),
+        WHERE game_datetime >= ? AND game_datetime <= ?
+        """,
+        (formatted_start_date, formatted_end_date),
     )
-
     result = cursor.fetchall()
+
     if result:
-        return [game[0] for game in result]
+        return [game["id"] for game in result]
 
-    # formatted_start_date = (datetime.date.today() - datetime.timedelta(days=num_days)).strftime("%m/%d/%Y")
-    # formatted_end_date = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%m/%d/%Y")
-
-    formatted_start_date = "09/15/2023"
-    formatted_end_date = "10/1/2023"
+    # If not in the database, fetch from the API
     last_n_days_games = statsapi.schedule(
         start_date=formatted_start_date, end_date=formatted_end_date, team=team_id
     )
@@ -102,7 +114,7 @@ def fetch_and_cache_game_ids_span(team_id, num_days):
             """
             INSERT OR IGNORE INTO tb_GameId (id, game_datetime)
             VALUES (?, ?)
-        """,
+            """,
             (game_id, game_datetime),
         )
         game_ids.append(game_id)

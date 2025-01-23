@@ -30,18 +30,28 @@ def get_nrfi_occurence(team_id, num_days):
     return nrfi_occurence
 
 
-def schedule(team_id):
-    today = datetime.date.today()
-    start_date = today
-    # formatted_start_date = start_date.strftime("%m/%d/%Y")
-    formatted_start_date = "09/15/2023"
-    if team_id == 0:
-        next_games = statsapi.schedule(start_date=formatted_start_date)
+def schedule(team_id, num_days=None):
+    base_date = datetime.date(2024, 9, 29)
+
+    if num_days is not None:
+        start_date = base_date - datetime.timedelta(days=num_days)
+        formatted_start_date = start_date.strftime("%m/%d/%Y")
     else:
-        next_games = statsapi.schedule(start_date=formatted_start_date, team=team_id)
+        formatted_start_date = base_date.strftime("%m/%d/%Y")
+
+    formatted_end_date = base_date.strftime("%m/%d/%Y")
+
+    if team_id == 0:
+        next_games = statsapi.schedule(
+            start_date=formatted_start_date, end_date=formatted_end_date
+        )
+    else:
+        next_games = statsapi.schedule(
+            start_date=formatted_start_date, end_date=formatted_end_date, team=team_id
+        )
 
     if not next_games:
-        start_date = today + datetime.timedelta(days=1)
+        start_date = base_date + datetime.timedelta(days=1)
         formatted_start_date = start_date.strftime("%m/%d/%Y")
         if team_id == 0:
             next_games = statsapi.schedule(start_date=formatted_start_date)
@@ -53,7 +63,7 @@ def schedule(team_id):
     games_with_pitcher_info = []
     for game in next_games:
         game_details = get_game_details(game["game_id"])
-        pitcher_info = fetch_and_cache_pitcher_info(game_details["gamePk"])
+        pitcher_info = fetch_and_cache_pitcher_info(game["game_id"], game_details)
 
         game_with_pitcher_info = {
             "game_id": game["game_id"],
