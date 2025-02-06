@@ -1,3 +1,4 @@
+import asyncio
 import json
 import datetime
 import statsapi
@@ -70,9 +71,22 @@ def initialize_db():
     db.commit()
 
 
-def fetch_and_cache_game_ids_span(team_id, num_days=None):
-    db = get_db()
-    cursor = db.cursor()
+async def fetch_and_cache_game_ids_span(team_id, num_days=None):
+    """
+    Fetches game IDs for a specified team over a span of days and caches them in the database.
+    This function first checks if the game IDs for the specified team and date range are already
+    present in the database. If they are, it returns the cached game IDs. If not, it fetches the
+    game IDs from an external API, caches them in the database, and then returns the game IDs.
+    Args:
+        team_id (int): The ID of the team for which to fetch game IDs.
+        num_days (int, optional): The number of days before the base date to fetch game IDs for.
+                                  If not provided, only the base date's game IDs are fetched.
+    Returns:
+        list: A list of game IDs for the specified team and date range.
+    """
+    print("Fetching game IDs")
+    # db = get_db()
+    # cursor = db.cursor()
 
     # Define the hardcoded base date
     base_date = datetime.date(2024, 9, 29)
@@ -89,90 +103,122 @@ def fetch_and_cache_game_ids_span(team_id, num_days=None):
     formatted_end_date = end_date.strftime("%m/%d/%Y")
 
     # Check if data exists in the database
-    cursor.execute(
-        """
-        SELECT id FROM tb_GameId
-        WHERE game_datetime >= ? AND game_datetime <= ?
-        """,
-        (formatted_start_date, formatted_end_date),
-    )
-    result = cursor.fetchall()
+    # cursor.execute(
+    #     """
+    #     SELECT id FROM tb_GameId
+    #     WHERE game_datetime >= ? AND game_datetime <= ?
+    #     """,
+    #     (formatted_start_date, formatted_end_date),
+    # )
+    # result = cursor.fetchall()
 
-    if result:
-        return [game["id"] for game in result]
+    # if result:
+    #     return [game["id"] for game in result]
 
     # If not in the database, fetch from the API
-    last_n_days_games = statsapi.schedule(
-        start_date=formatted_start_date, end_date=formatted_end_date, team=team_id
-    )
+    dates = []
+    end_date = start_date - datetime.timedelta(days=1)
 
+    # Creating a list of dates to fetch in batches of 5 days
+    for i in range(0, (num_days + 1) // 5):
+        start_date = end_date + datetime.timedelta(days=1)
+        end_date = start_date + datetime.timedelta(days=5)
+        dates.append(
+            {
+                "start_date": start_date.strftime("%m/%d/%Y"),
+                "end_date": end_date.strftime("%m/%d/%Y"),
+            }
+        )
+
+    print("Fetching game IDs from API asynchronously, this may take a while...")
+    print(f"start time: {datetime.datetime.now()}")
+    last_n_days_games = [fetch_schedule(date, team_id) for date in dates]
+    tasks = await asyncio.gather(*last_n_days_games)
+    results = []
+    for task in tasks:
+        results.extend(task)
+    print(f"Found {len(results)} games for team {team_id} in the last {num_days} days")
+    
     game_ids = []
-    for game in last_n_days_games:
+    for game in results:
         game_id = game["game_id"]
         game_datetime = game["game_datetime"]
-        cursor.execute(
-            """
-            INSERT OR IGNORE INTO tb_GameId (id, game_datetime)
-            VALUES (?, ?)
-            """,
-            (game_id, game_datetime),
-        )
+        # cursor.execute(
+        #     """
+        #     INSERT OR IGNORE INTO tb_GameId (id, game_datetime)
+        #     VALUES (?, ?)
+        #     """,
+        #     (game_id, game_datetime),
+        # )
         game_ids.append(game_id)
 
-    db.commit()
+    print("Game IDs fetched successfully")
+    print(f"end time: {datetime.datetime.now()}")
+    # db.commit()
     return game_ids
 
 
+async def fetch_schedule(date, team_id):
+    # Convert sync function to async using to_thread
+    print(f"Fetching schedule for team {team_id} from {date['start_date']} to {date['end_date']}")
+    return await asyncio.to_thread(
+        statsapi.schedule,
+        start_date=date["start_date"],
+        end_date=date["end_date"],
+        team=team_id,
+    )
+
+
 def fetch_and_cache_linescore(game_id):
-    db = get_db()
-    cursor = db.cursor()
+    # db = get_db()
+    # cursor = db.cursor()
 
-    cursor.execute("SELECT linescore FROM tb_Linescores WHERE game_id = ?", (game_id,))
-    result = cursor.fetchone()
+    # cursor.execute("SELECT linescore FROM tb_Linescores WHERE game_id = ?", (game_id,))
+    # result = cursor.fetchone()
 
-    if result:
-        return json.loads(result[0])
+    # if result:
+    #     return json.loads(result[0])
 
     # Fetch data from the API
     game = statsapi.get("game", {"gamePk": game_id})
     linescore_data = game["liveData"]["linescore"]["innings"]
 
-    cursor.execute(
-        "INSERT INTO tb_Linescores (game_id, linescore) VALUES (?, ?)",
-        (game_id, json.dumps(linescore_data)),
-    )
+    # cursor.execute(
+    #     "INSERT INTO tb_Linescores (game_id, linescore) VALUES (?, ?)",
+    #     (game_id, json.dumps(linescore_data)),
+    # )
 
-    db.commit()
+    # db.commit()
 
     return linescore_data
 
 
 def fetch_game_data(game_id):
-    db = get_db()
-    cursor = db.cursor()
+    # db = get_db()
+    # cursor = db.cursor()
 
-    cursor.execute(
-        """
-        SELECT 
-            game_id, away_team_id, home_team_id, game_datetime,
-            away_team_runs, home_team_runs, away_pitcher_id, home_pitcher_id
-        FROM tb_GameData WHERE game_id = ?
-        """,
-        (game_id,),
-    )
-    result = cursor.fetchone()
+    # cursor.execute(
+    #     """
+    #     SELECT 
+    #         game_id, away_team_id, home_team_id, game_datetime,
+    #         away_team_runs, home_team_runs, away_pitcher_id, home_pitcher_id
+    #     FROM tb_GameData WHERE game_id = ?
+    #     """,
+    #     (game_id,),
+    # )
+    # result = cursor.fetchone()
 
-    if result:
-        return {
-            "game_id": result["game_id"],
-            "away_team_id": result["away_team_id"],
-            "home_team_id": result["home_team_id"],
-            "game_datetime": result["game_datetime"],
-            "away_team_runs": result["away_team_runs"],
-            "home_team_runs": result["home_team_runs"],
-            "away_pitcher_id": result["away_pitcher_id"],
-            "home_pitcher_id": result["home_pitcher_id"],
-        }
+    # if result:
+    #     return {
+    #         "game_id": result["game_id"],
+    #         "away_team_id": result["away_team_id"],
+    #         "home_team_id": result["home_team_id"],
+    #         "game_datetime": result["game_datetime"],
+    #         "away_team_runs": result["away_team_runs"],
+    #         "home_team_runs": result["home_team_runs"],
+    #         "away_pitcher_id": result["away_pitcher_id"],
+    #         "home_pitcher_id": result["home_pitcher_id"],
+    #     }
 
     try:
         game = statsapi.get("game", {"gamePk": game_id})
@@ -187,25 +233,25 @@ def fetch_game_data(game_id):
         away_pitcher_id = game_data["probablePitchers"]["away"]["id"]
         home_pitcher_id = game_data["probablePitchers"]["home"]["id"]
 
-        cursor.execute(
-            """
-            INSERT OR IGNORE INTO tb_GameData (
-                game_id, away_team_id, home_team_id, game_datetime,
-                away_team_runs, home_team_runs, away_pitcher_id, home_pitcher_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                game_id,
-                away_team_id,
-                home_team_id,
-                game_datetime,
-                away_team_runs,
-                home_team_runs,
-                away_pitcher_id,
-                home_pitcher_id,
-            ),
-        )
-        db.commit()
+        # cursor.execute(
+        #     """
+        #     INSERT OR IGNORE INTO tb_GameData (
+        #         game_id, away_team_id, home_team_id, game_datetime,
+        #         away_team_runs, home_team_runs, away_pitcher_id, home_pitcher_id
+        #     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        #     """,
+        #     (
+        #         game_id,
+        #         away_team_id,
+        #         home_team_id,
+        #         game_datetime,
+        #         away_team_runs,
+        #         home_team_runs,
+        #         away_pitcher_id,
+        #         home_pitcher_id,
+        #     ),
+        # )
+        # db.commit()
 
         return {
             "game_id": game_id,
@@ -224,37 +270,37 @@ def fetch_game_data(game_id):
 
 
 def fetch_and_cache_pitcher_info(game_id, data=None):
-    db = get_db()
-    cursor = db.cursor()
+    # db = get_db()
+    # cursor = db.cursor()
 
-    cursor.execute(
-        """
-        SELECT 
-            home_pitcher_id, home_pitcher_name, home_pitcher_hand, 
-            home_pitcher_wins, home_pitcher_losses, home_pitcher_era,
-            away_pitcher_id, away_pitcher_name, away_pitcher_hand, 
-            away_pitcher_wins, away_pitcher_losses, away_pitcher_era
-        FROM tb_PitcherData WHERE game_id = ?
-        """,
-        (game_id,),
-    )
-    result = cursor.fetchone()
+    # cursor.execute(
+    #     """
+    #     SELECT 
+    #         home_pitcher_id, home_pitcher_name, home_pitcher_hand, 
+    #         home_pitcher_wins, home_pitcher_losses, home_pitcher_era,
+    #         away_pitcher_id, away_pitcher_name, away_pitcher_hand, 
+    #         away_pitcher_wins, away_pitcher_losses, away_pitcher_era
+    #     FROM tb_PitcherData WHERE game_id = ?
+    #     """,
+    #     (game_id,),
+    # )
+    # result = cursor.fetchone()
 
-    if result:
-        return {
-            "homePitcherID": result["home_pitcher_id"],
-            "homePitcher": result["home_pitcher_name"],
-            "homePitcherHand": result["home_pitcher_hand"],
-            "homePitcherWins": result["home_pitcher_wins"],
-            "homePitcherLosses": result["home_pitcher_losses"],
-            "homePitcherERA": result["home_pitcher_era"],
-            "awayPitcherID": result["away_pitcher_id"],
-            "awayPitcher": result["away_pitcher_name"],
-            "awayPitcherHand": result["away_pitcher_hand"],
-            "awayPitcherWins": result["away_pitcher_wins"],
-            "awayPitcherLosses": result["away_pitcher_losses"],
-            "awayPitcherERA": result["away_pitcher_era"],
-        }
+    # if result:
+    #     return {
+    #         "homePitcherID": result["home_pitcher_id"],
+    #         "homePitcher": result["home_pitcher_name"],
+    #         "homePitcherHand": result["home_pitcher_hand"],
+    #         "homePitcherWins": result["home_pitcher_wins"],
+    #         "homePitcherLosses": result["home_pitcher_losses"],
+    #         "homePitcherERA": result["home_pitcher_era"],
+    #         "awayPitcherID": result["away_pitcher_id"],
+    #         "awayPitcher": result["away_pitcher_name"],
+    #         "awayPitcherHand": result["away_pitcher_hand"],
+    #         "awayPitcherWins": result["away_pitcher_wins"],
+    #         "awayPitcherLosses": result["away_pitcher_losses"],
+    #         "awayPitcherERA": result["away_pitcher_era"],
+    #     }
 
     if not data:
         data = statsapi.get("game", {"gamePk": game_id})
@@ -288,33 +334,33 @@ def fetch_and_cache_pitcher_info(game_id, data=None):
     except Exception:
         away_pitcher_stats = {"wins": "TBD", "losses": "TBD", "era": "TBD"}
 
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO tb_PitcherData (
-            game_id, 
-            home_pitcher_id, home_pitcher_name, home_pitcher_hand, 
-            home_pitcher_wins, home_pitcher_losses, home_pitcher_era, 
-            away_pitcher_id, away_pitcher_name, away_pitcher_hand, 
-            away_pitcher_wins, away_pitcher_losses, away_pitcher_era
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            game_id,
-            home_pitcher["id"],
-            home_pitcher["fullName"],
-            home_pitcher_hand,
-            home_pitcher_stats["wins"],
-            home_pitcher_stats["losses"],
-            home_pitcher_stats["era"],
-            away_pitcher["id"],
-            away_pitcher["fullName"],
-            away_pitcher_hand,
-            away_pitcher_stats["wins"],
-            away_pitcher_stats["losses"],
-            away_pitcher_stats["era"],
-        ),
-    )
-    db.commit()
+    # cursor.execute(
+    #     """
+    #     INSERT OR IGNORE INTO tb_PitcherData (
+    #         game_id, 
+    #         home_pitcher_id, home_pitcher_name, home_pitcher_hand, 
+    #         home_pitcher_wins, home_pitcher_losses, home_pitcher_era, 
+    #         away_pitcher_id, away_pitcher_name, away_pitcher_hand, 
+    #         away_pitcher_wins, away_pitcher_losses, away_pitcher_era
+    #     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    #     """,
+    #     (
+    #         game_id,
+    #         home_pitcher["id"],
+    #         home_pitcher["fullName"],
+    #         home_pitcher_hand,
+    #         home_pitcher_stats["wins"],
+    #         home_pitcher_stats["losses"],
+    #         home_pitcher_stats["era"],
+    #         away_pitcher["id"],
+    #         away_pitcher["fullName"],
+    #         away_pitcher_hand,
+    #         away_pitcher_stats["wins"],
+    #         away_pitcher_stats["losses"],
+    #         away_pitcher_stats["era"],
+    #     ),
+    # )
+    # db.commit()
 
     return {
         "homePitcherID": home_pitcher["id"],

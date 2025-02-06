@@ -49,13 +49,12 @@ def get_schedule(team_id):
 
 
 @app.route("/stats/<int:team_id>/<int:num_days>", methods=["GET"])
-def get_stats(team_id: int, num_days: int):
-    nrfi = get_nrfi_occurence(team_id, num_days)
-    list_of_results = get_moneyline_scores_first_5_innings(team_id, num_days)
+async def get_stats(team_id: int, num_days: int):
+    nrfi = await get_nrfi_occurence(team_id, num_days)
+    list_of_results = await get_moneyline_scores_first_5_innings(team_id, num_days)
     win_percentage = calculate_win_percentage(list_of_results, team_id)
 
-    overs_first_5_innings = get_overs_first_5_innings(team_id, num_days)
-
+    overs_first_5_innings = await get_overs_first_5_innings(team_id, num_days)
     return jsonify(
         {
             "results": list_of_results,
