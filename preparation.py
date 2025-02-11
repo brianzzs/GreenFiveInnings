@@ -115,7 +115,7 @@ def schedule(team_id, num_days=None):
 async def get_moneyline_scores_first_5_innings(team_id, num_days):
     game_ids = await fetch_and_cache_game_ids_span(team_id, num_days)
     results = []
-    
+
     for game_id in game_ids:
         game_result = get_ml_results(game_id)
         results.append(game_result)
