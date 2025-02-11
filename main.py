@@ -89,6 +89,9 @@ async def get_stats_batch(team_id: int, num_days: int) -> dict:
                 {
                     "away_team": {
                         "id": game_data["teams"]["away"]["id"],
+                        "name": TEAM_NAMES.get(
+                            game_data["teams"]["away"]["id"], "Unknown"
+                        ),
                         "runs": [inning["away"]["runs"] for inning in f5_innings],
                         "probable_pitcher": {
                             "name": away_pitcher["fullName"],
@@ -101,6 +104,9 @@ async def get_stats_batch(team_id: int, num_days: int) -> dict:
                     },
                     "home_team": {
                         "id": game_data["teams"]["home"]["id"],
+                        "name": TEAM_NAMES.get(
+                            game_data["teams"]["home"]["id"], "Unknown"
+                        ),
                         "runs": [inning["home"]["runs"] for inning in f5_innings],
                         "probable_pitcher": {
                             "name": home_pitcher["fullName"],
