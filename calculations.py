@@ -1,5 +1,6 @@
 import datetime
 import statsapi
+from typing import List
 from cache import (
     fetch_and_cache_linescore,
     fetch_game_data,
@@ -85,27 +86,15 @@ def get_ml_results(game_id):
     }
 
 
-def calculate_win_percentage(results, team_id):
-    total_games = 0
-    team_wins = 0
-
-    for game in results:
-        if game["away_team"]["id"] == team_id:
-            total_games += 1
-            if game["away_team"]["total_runs"] > game["home_team"]["total_runs"]:
-                team_wins += 1
-        elif game["home_team"]["id"] == team_id:
-            total_games += 1
-            if game["home_team"]["total_runs"] > game["away_team"]["total_runs"]:
-                team_wins += 1
-
-    if total_games == 0:
-        return 0
-
-    win_percentage = (team_wins / total_games) * 100
-    rounded_percentage = round(win_percentage, 2)
-
-    return rounded_percentage
+def calculate_win_percentage(results: List[dict], team_id: int) -> float:
+    team_games = [(game, game["away_team"]["id"] == team_id) for game in results]
+    wins = sum(
+        1
+        for game, is_away in team_games
+        if (is_away and game["away_team"]["runs"] > game["home_team"]["runs"])
+        or (not is_away and game["home_team"]["runs"] > game["away_team"]["runs"])
+    )
+    return (wins / len(results) * 100) if results else 0
 
 
 def get_first_inning(game_id, team_id):
