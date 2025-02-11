@@ -11,7 +11,7 @@ from calculations import (
     fetch_and_cache_pitcher_info,
 )
 
-from cache import fetch_and_cache_game_ids_span, fetch_and_cache_game_ids_span
+from cache import fetch_and_cache_game_ids_span
 
 
 def get_game_details(game_id):
@@ -19,9 +19,9 @@ def get_game_details(game_id):
     return game
 
 
-def get_nrfi_occurence(team_id, num_days):
+async def get_nrfi_occurence(team_id, num_days):
     first_inning_list = []
-    game_ids = fetch_and_cache_game_ids_span(team_id, num_days)
+    game_ids = await fetch_and_cache_game_ids_span(team_id, num_days)
     for game_id in game_ids:
         runs_first_inning = get_first_inning(game_id, team_id)
         first_inning_list.append(runs_first_inning)
@@ -112,9 +112,10 @@ def schedule(team_id, num_days=None):
     return games_with_pitcher_info
 
 
-def get_moneyline_scores_first_5_innings(team_id, num_days):
-    game_ids = fetch_and_cache_game_ids_span(team_id, num_days)
+async def get_moneyline_scores_first_5_innings(team_id, num_days):
+    game_ids = await fetch_and_cache_game_ids_span(team_id, num_days)
     results = []
+    
     for game_id in game_ids:
         game_result = get_ml_results(game_id)
         results.append(game_result)
@@ -122,10 +123,11 @@ def get_moneyline_scores_first_5_innings(team_id, num_days):
     return results
 
 
-def get_overs_first_5_innings(team_id, num_days):
-    game_ids = fetch_and_cache_game_ids_span(team_id, num_days)
+async def get_overs_first_5_innings(team_id, num_days):
+    game_ids = await fetch_and_cache_game_ids_span(team_id, num_days)
     runs_per_game = []
     list_of_runs_f5 = []
+
     for game_id in game_ids:
         list_of_runs_f5 = get_team_box_score_first_five(game_id, team_id)
         runs_per_game.append(list_of_runs_f5)
