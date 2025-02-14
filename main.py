@@ -7,6 +7,7 @@ from preparation import (
     get_team_stats,
 )
 import aiohttp
+from player import search_player_by_name, get_player_stats
 
 
 app = Flask(__name__)
@@ -150,6 +151,7 @@ async def get_stats_batch(team_id: int, num_days: int) -> dict:
         }
 
 
+
 @app.route("/schedule_today", methods=["GET"])
 def get_schedule_today():
     return jsonify(schedule(0))
@@ -166,6 +168,15 @@ def compare_teams(team_id1, team_id2):
     }
     return combined_stats
 
+@app.route("/player/search/<string:name>", methods=["GET"])
+def search_player(name):
+    return jsonify(search_player_by_name(name))
+
+
+@app.route("/player/stats/<int:player_id>", methods=["GET"])
+def get_player(player_id):
+    return jsonify(get_player_stats(player_id))
+
 
 if __name__ == "__main__":
-    app.run()
+    app.run() 
