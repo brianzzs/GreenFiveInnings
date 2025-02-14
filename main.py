@@ -179,4 +179,5 @@ def get_player(player_id):
 
 
 if __name__ == "__main__":
-    app.run() 
+    # print(app.url_map)
+    app.run(debug=True)  
