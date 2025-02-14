@@ -1,6 +1,6 @@
 import statsapi
 from typing import List, Dict, Union, Optional
-
+from calculations import TEAM_NAMES
 def search_player_by_name(name: str) -> List[Dict[str, Union[str, int]]]:
     """
     Search for players by name and return a list of matching players with their IDs
@@ -49,9 +49,8 @@ def get_player_stats(player_id: int) -> Dict[str, Union[str, Dict]]:
             "player_info": {
                 "id": player_info['id'],
                 "full_name": player_info['fullName'],
-                "current_team": player_info.get('currentTeam', {}).get('id', 'Not Available'),
+                "current_team": TEAM_NAMES.get(player_info.get('currentTeam', {}).get('id', 'Not Available'), 'Not Available'),
                 "position": player_info.get('primaryPosition', {}).get('abbreviation', 'N/A'),
-                "birth_date": player_info.get('birthDate', 'Not Available'),
                 "active": player_info.get('active', False),
                 "bat_side": player_batting_data.get('bat_side', {})[:1],
                 "throw_hand": player_batting_data.get('pitch_hand', {})[:1],
