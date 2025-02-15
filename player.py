@@ -36,21 +36,18 @@ def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]
             return {"error": "Player not found"}
             
         player_info = data['people'][0]
-        is_pitcher = player_info.get('primaryPosition', {}).get('abbreviation') == 'P'
+        position = player_info.get('primaryPosition', {}).get('abbreviation', 'N/A')
+        is_pitcher = position == 'P'
+        is_two_way = position == 'TWP'
         
-        # Get career stats based on player type
-        if is_pitcher:
-            career_stats = statsapi.player_stat_data(player_id, "pitching", "career")
-        else:
-            career_stats = statsapi.player_stat_data(player_id, "hitting", "career")
+        # Get career stats
+        hitting_career = statsapi.player_stat_data(player_id, "hitting", "career")
+        pitching_career = statsapi.player_stat_data(player_id, "pitching", "career") if (is_pitcher or is_two_way) else None
         
         # Get season stats from the response
         stats_data = player_info.get('stats', [])
-        hitting_stats = stats_data[0]['splits'][0]['stat']
-        pitching_stats = stats_data[0]['splits'][0]['stat']
-
-
-        career_stats = career_stats.get("stats", [])[0].get("stats")
+        hitting_stats = {}
+        pitching_stats = {}
         
         for stat in stats_data:
             if stat.get('group', {}).get('displayName') == 'hitting':
@@ -60,28 +57,51 @@ def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]
                 if stat.get('splits'):
                     pitching_stats = stat['splits'][0]['stat']
         
+        # Process career stats
+        hitting_career_stats = hitting_career.get("stats", [])[0].get("stats") if hitting_career else {}
+        pitching_career_stats = pitching_career.get("stats", [])[0].get("stats") if pitching_career else {}
+        
         # Construct image URLs
         image_urls = {
             "headshot": f"https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/{player_id}/headshot/67/current",
             "action": f"https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:action:hero:current.png/w_2208,q_auto:good/v1/people/{player_id}/action/hero/current"
         }
         
-        return {
+        response_data = {
             "player_info": {
                 "id": player_info['id'],
                 "full_name": player_info['fullName'],
                 "current_team": TEAM_NAMES.get(player_info.get('stats', {})[0].get('splits', {})[0].get('team', {}).get('id'), 'Not Available'),
-                "position": player_info.get('primaryPosition', {}).get('abbreviation', 'N/A'),
+                "position": position,
                 "bat_side": player_info.get('batSide', {}).get('code', 'N/A'),
                 "throw_hand": player_info.get('pitchHand', {}).get('code', 'N/A'),
                 "birth_date": player_info.get('birthDate'),
                 "age": player_info.get('currentAge'),
                 "images": image_urls
             },
-            "season": season,
-            "season_stats": format_stats(hitting_stats if not is_pitcher else pitching_stats, is_pitcher),
-            "career_stats": format_stats(career_stats, is_pitcher)
+            "season": season
         }
+        
+        # Add stats based on player type
+        if is_two_way:
+            response_data.update({
+                "hitting_stats": {
+                    "season": format_stats(hitting_stats, False),
+                    "career": format_stats(hitting_career_stats, False)
+                },
+                "pitching_stats": {
+                    "season": format_stats(pitching_stats, True),
+                    "career": format_stats(pitching_career_stats, True)
+                }
+            })
+        else:
+            response_data.update({
+                "season_stats": format_stats(hitting_stats if not is_pitcher else pitching_stats, is_pitcher),
+                "career_stats": format_stats(hitting_career_stats if not is_pitcher else pitching_career_stats, is_pitcher)
+            })
+        
+        return response_data
+        
     except Exception as e:
         print(f"Error fetching player stats: {e}")
         return {"error": f"Error fetching player stats: {str(e)}"}
