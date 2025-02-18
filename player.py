@@ -9,6 +9,7 @@ def search_player_by_name(name: str) -> List[Dict[str, Union[str, int]]]:
     """
     try:
         players = statsapi.lookup_player(name)
+
         
         return [
             {
@@ -16,7 +17,8 @@ def search_player_by_name(name: str) -> List[Dict[str, Union[str, int]]]:
                 "full_name": player['fullName'],
                 "first_name": player['firstName'],
                 "last_name": player['lastName'],
-                "current_team": player.get('team', {}).get('name', 'Not Available'),
+                "current_team": TEAM_NAMES.get(player['currentTeam']['id'], 'Not Available'),
+                "image_url": f"https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/{player['id']}/headshot/67/current",
                 "position": player.get('primaryPosition', {}).get('abbreviation', 'N/A'),
             }
             for player in players
