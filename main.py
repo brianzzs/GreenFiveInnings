@@ -173,10 +173,11 @@ def search_player(name):
     return jsonify(search_player_by_name(name))
 
 
-@app.route("/player/stats/<int:player_id>", methods=["GET"])
-def get_player(player_id):
-    return jsonify(get_player_stats(player_id))
+@app.route("/player/stats/<int:player_id>/<string:season>", methods=["GET"])
+def get_player(player_id, season):
+    return jsonify(get_player_stats(player_id, season))
 
 
 if __name__ == "__main__":
-    app.run() 
+    # print(app.url_map)
+    app.run(debug=False)  
