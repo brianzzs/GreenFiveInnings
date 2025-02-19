@@ -2,6 +2,9 @@ import statsapi
 import requests
 from typing import List, Dict, Union, Optional
 from calculations import TEAM_NAMES
+import datetime
+import asyncio
+from functools import lru_cache
 
 def search_player_by_name(name: str) -> List[Dict[str, Union[str, int]]]:
     """
@@ -42,11 +45,9 @@ def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]
         is_pitcher = position == 'P'
         is_two_way = position == 'TWP'
         
-        # Get career stats
         hitting_career = statsapi.player_stat_data(player_id, "hitting", "career")
         pitching_career = statsapi.player_stat_data(player_id, "pitching", "career") if (is_pitcher or is_two_way) else None
         
-        # Get season stats from the response
         stats_data = player_info.get('stats', [])
         hitting_stats = {}
         pitching_stats = {}
@@ -63,7 +64,6 @@ def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]
         hitting_career_stats = hitting_career.get("stats", [])[0].get("stats") if hitting_career else {}
         pitching_career_stats = pitching_career.get("stats", [])[0].get("stats") if pitching_career else {}
         
-        # Construct image URLs
         image_urls = {
             "headshot": f"https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/{player_id}/headshot/67/current",
             "action": f"https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:action:hero:current.png/w_2208,q_auto:good/v1/people/{player_id}/action/hero/current"
@@ -84,7 +84,6 @@ def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]
             "season": season
         }
         
-        # Add stats based on player type
         if is_two_way:
             response_data.update({
                 "hitting_stats": {
@@ -139,3 +138,105 @@ def format_stats(stats: Dict, is_pitcher: bool) -> Dict[str, str]:
             "slg": str(stats.get('slg', 'N/A')),
             "ops": str(stats.get('ops', 'N/A'))
         }
+
+@lru_cache(maxsize=128)
+def get_game_data(game_id: int) -> dict:
+    return statsapi.get('game', {'gamePk': game_id})
+
+@lru_cache(maxsize=64)
+def lookup_player(player_id: int) -> dict:
+    return statsapi.lookup_player(player_id)[0]
+
+async def fetch_game_data_async(game_id: int) -> dict:
+    """Fetch game data asynchronously, using cache when available"""
+    return await asyncio.to_thread(get_game_data, game_id)
+
+async def get_player_recent_stats(player_id: int, num_days: int) -> Dict[str, Union[str, List[Dict[str, Union[str, int]]]]]:
+    try:
+        player_info = lookup_player(player_id)
+        team_id = player_info.get('currentTeam', {}).get('id')
+        position = player_info.get('primaryPosition', {}).get('abbreviation', 'N/A')
+        is_pitcher = position == 'P'
+        
+        if not team_id:
+            return {"error": "Team ID not found for player"}
+        
+        # Calculate date range 
+        end_date = datetime.date(2024, 9, 29)
+        start_date = end_date - datetime.timedelta(days=num_days)
+        
+        recent_games = await asyncio.to_thread(
+            statsapi.schedule,
+            team=team_id,
+            start_date=start_date.strftime("%Y-%m-%d"),
+            end_date=end_date.strftime("%Y-%m-%d")
+        )
+        recent_game_ids = [game['game_id'] for game in recent_games if game['status'] == 'Final']
+        
+        tasks = [fetch_game_data_async(game_id) for game_id in recent_game_ids]
+        game_data_list = await asyncio.gather(*tasks)
+        
+        player_stats = []
+        
+        for game_data in game_data_list:
+            live_data = game_data.get('liveData', {})
+            boxscore = live_data.get('boxscore', {})
+            teams = boxscore.get('teams', {})
+            home_team = teams.get('home', {})
+            away_team = teams.get('away', {})
+            players = home_team.get('players', {})
+            players.update(away_team.get('players', {}))
+            
+            player_key = f'ID{player_id}'
+            if player_key in players:
+                game_date = game_data['gameData']['datetime']['dateTime']
+                
+                if is_pitcher:
+                    player_game_stats = players[player_key].get('stats', {}).get('pitching', {})
+                    opponent_team = away_team if home_team['team']['id'] == team_id else home_team
+                    player_stats.append({
+                        "game_id": game_data['gameData']['game']['pk'],
+                        "game_date": game_date,
+                        "innings_pitched": player_game_stats.get('inningsPitched', 0),
+                        "hits_allowed": player_game_stats.get('hits', 0),
+                        "home_runs_allowed": player_game_stats.get('homeRuns', 0),
+                        "walks_allowed": player_game_stats.get('baseOnBalls', 0),
+                        "strikeouts": player_game_stats.get('strikeOuts', 0),
+                        "opponent_team": opponent_team['team']['name']
+                    })
+                else:
+                    player_game_stats = players[player_key].get('stats', {}).get('batting', {})
+                    opponent_team = away_team if home_team['team']['id'] == team_id else home_team
+                    is_home_team = home_team['team']['id'] == team_id
+
+                    try:
+                        opponent_pitcher = game_data['gameData']['probablePitchers']['away' if is_home_team else 'home']['fullName']
+                    except KeyError:
+                        opponent_pitcher = "Unknown"
+
+                    player_stats.append({
+                        "game_id": game_data['gameData']['game']['pk'],
+                        "game_date": game_date,
+                        "hits": player_game_stats.get('hits', 0),
+                        "runs": player_game_stats.get('runs', 0),
+                        "rbis": player_game_stats.get('rbi', 0),
+                        "home_runs": player_game_stats.get('homeRuns', 0),
+                        "walks": player_game_stats.get('baseOnBalls', 0),
+                        "at_bats": player_game_stats.get('atBats', 0),
+                        "avg": round((player_game_stats.get("hits") / player_game_stats.get("atBats")) if player_game_stats.get("atBats") else 0, 3),
+                        "strikeouts": player_game_stats.get('strikeOuts', 0),
+                        "opponent_team": opponent_team['team']['name'],
+                        "opponent_pitcher": opponent_pitcher
+                    })
+        
+        player_stats.sort(key=lambda x: x['game_date'], reverse=True)
+        
+        return {
+            "player_id": player_id,
+            "player_name": player_info['fullName'],
+            "recent_stats": player_stats
+        }
+        
+    except Exception as e:
+        print(f"Error fetching recent player stats: {e}")
+        return {"error": f"Error fetching recent player stats: {str(e)}"}
