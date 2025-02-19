@@ -212,7 +212,7 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                                 "home_runs_allowed": player_game_stats.get('homeRuns', 0),
                                 "walks_allowed": player_game_stats.get('baseOnBalls', 0),
                                 "strikeouts": player_game_stats.get('strikeOuts', 0),
-                                "opponent_team": opponent_team['team']['name']
+                                "opponent_team": TEAM_NAMES.get(opponent_team['team']['id'], 'Unknown')
                             })
                     else:
                         # For batters, check if they had any at-bats or plate appearances
@@ -237,7 +237,7 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                                 "at_bats": player_game_stats.get('atBats', 0),
                                 "avg": round((player_game_stats.get("hits") / player_game_stats.get("atBats")) if player_game_stats.get("atBats") else 0, 3),
                                 "strikeouts": player_game_stats.get('strikeOuts', 0),
-                                "opponent_team": opponent_team['team']['name'],
+                                "opponent_team": TEAM_NAMES.get(opponent_team['team']['id'], 'Unknown'),
                                 "opponent_pitcher": opponent_pitcher
                             })
             
