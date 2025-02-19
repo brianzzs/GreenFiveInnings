@@ -7,7 +7,7 @@ from preparation import (
     get_team_stats,
 )
 import aiohttp
-from player import search_player_by_name, get_player_stats
+from player import search_player_by_name, get_player_stats, get_player_recent_stats
 
 
 app = Flask(__name__)
@@ -178,6 +178,12 @@ def get_player(player_id, season):
     return jsonify(get_player_stats(player_id, season))
 
 
+@app.route("/player/recent-stats/<int:player_id>/<int:num_days>", methods=["GET"])
+async def get_recent_player_stats(player_id, num_days):
+    stats = await get_player_recent_stats(player_id, num_days)
+    return jsonify(stats)
+
+
 if __name__ == "__main__":
     # print(app.url_map)
-    app.run(debug=False)  
+    app.run(debug=True)  
