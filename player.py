@@ -151,7 +151,7 @@ async def fetch_game_data_async(game_id: int) -> dict:
     """Fetch game data asynchronously, using cache when available"""
     return await asyncio.to_thread(get_game_data, game_id)
 
-async def get_player_recent_stats(player_id: int, num_days: int) -> Dict[str, Union[str, List[Dict[str, Union[str, int]]]]]:
+async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, Union[str, List[Dict[str, Union[str, int]]]]]:
     try:
         player_info = lookup_player(player_id)
         team_id = player_info.get('currentTeam', {}).get('id')
@@ -161,80 +161,98 @@ async def get_player_recent_stats(player_id: int, num_days: int) -> Dict[str, Un
         if not team_id:
             return {"error": "Team ID not found for player"}
         
-        # Calculate date range 
         end_date = datetime.date(2024, 9, 29)
-        start_date = end_date - datetime.timedelta(days=num_days)
-        
-        recent_games = await asyncio.to_thread(
-            statsapi.schedule,
-            team=team_id,
-            start_date=start_date.strftime("%Y-%m-%d"),
-            end_date=end_date.strftime("%Y-%m-%d")
-        )
-        recent_game_ids = [game['game_id'] for game in recent_games if game['status'] == 'Final']
-        
-        tasks = [fetch_game_data_async(game_id) for game_id in recent_game_ids]
-        game_data_list = await asyncio.gather(*tasks)
-        
         player_stats = []
+        days_to_search = 30  # Initial search window
         
-        for game_data in game_data_list:
-            live_data = game_data.get('liveData', {})
-            boxscore = live_data.get('boxscore', {})
-            teams = boxscore.get('teams', {})
-            home_team = teams.get('home', {})
-            away_team = teams.get('away', {})
-            players = home_team.get('players', {})
-            players.update(away_team.get('players', {}))
+        # Keep searching until we find enough games or hit a reasonable limit
+        while len(player_stats) < num_games and days_to_search <= 180:  # Max 180 days back
+            start_date = end_date - datetime.timedelta(days=days_to_search)
             
-            player_key = f'ID{player_id}'
-            if player_key in players:
-                game_date = game_data['gameData']['datetime']['dateTime']
+            recent_games = await asyncio.to_thread(
+                statsapi.schedule,
+                team=team_id,
+                start_date=start_date.strftime("%Y-%m-%d"),
+                end_date=end_date.strftime("%Y-%m-%d")
+            )
+            
+            # Filter completed games
+            recent_game_ids = [game['game_id'] for game in recent_games if game['status'] == 'Final']
+            
+            # Fetch game data concurrently
+            tasks = [fetch_game_data_async(game_id) for game_id in recent_game_ids]
+            game_data_list = await asyncio.gather(*tasks)
+            
+            for game_data in game_data_list:
+                if len(player_stats) >= num_games:
+                    break
+                    
+                live_data = game_data.get('liveData', {})
+                boxscore = live_data.get('boxscore', {})
+                teams = boxscore.get('teams', {})
+                home_team = teams.get('home', {})
+                away_team = teams.get('away', {})
+                players = home_team.get('players', {})
+                players.update(away_team.get('players', {}))
                 
-                if is_pitcher:
-                    player_game_stats = players[player_key].get('stats', {}).get('pitching', {})
-                    opponent_team = away_team if home_team['team']['id'] == team_id else home_team
-                    player_stats.append({
-                        "game_id": game_data['gameData']['game']['pk'],
-                        "game_date": game_date,
-                        "innings_pitched": player_game_stats.get('inningsPitched', 0),
-                        "hits_allowed": player_game_stats.get('hits', 0),
-                        "home_runs_allowed": player_game_stats.get('homeRuns', 0),
-                        "walks_allowed": player_game_stats.get('baseOnBalls', 0),
-                        "strikeouts": player_game_stats.get('strikeOuts', 0),
-                        "opponent_team": opponent_team['team']['name']
-                    })
-                else:
-                    player_game_stats = players[player_key].get('stats', {}).get('batting', {})
-                    opponent_team = away_team if home_team['team']['id'] == team_id else home_team
-                    is_home_team = home_team['team']['id'] == team_id
+                player_key = f'ID{player_id}'
+                if player_key in players:
+                    game_date = game_data['gameData']['datetime']['dateTime']
+                    
+                    if is_pitcher:
+                        # For pitchers, check if they actually pitched in the game
+                        player_game_stats = players[player_key].get('stats', {}).get('pitching', {})
+                        if player_game_stats.get('inningsPitched'):  # Only include games where they pitched
+                            opponent_team = away_team if home_team['team']['id'] == team_id else home_team
+                            player_stats.append({
+                                "game_id": game_data['gameData']['game']['pk'],
+                                "game_date": game_date,
+                                "innings_pitched": player_game_stats.get('inningsPitched', 0),
+                                "hits_allowed": player_game_stats.get('hits', 0),
+                                "home_runs_allowed": player_game_stats.get('homeRuns', 0),
+                                "walks_allowed": player_game_stats.get('baseOnBalls', 0),
+                                "strikeouts": player_game_stats.get('strikeOuts', 0),
+                                "opponent_team": opponent_team['team']['name']
+                            })
+                    else:
+                        # For batters, check if they had any at-bats or plate appearances
+                        player_game_stats = players[player_key].get('stats', {}).get('batting', {})
+                        if player_game_stats.get('atBats') or player_game_stats.get('plateAppearances'):
+                            opponent_team = away_team if home_team['team']['id'] == team_id else home_team
+                            is_home_team = home_team['team']['id'] == team_id
 
-                    try:
-                        opponent_pitcher = game_data['gameData']['probablePitchers']['away' if is_home_team else 'home']['fullName']
-                    except KeyError:
-                        opponent_pitcher = "Unknown"
+                            try:
+                                opponent_pitcher = game_data['gameData']['probablePitchers']['away' if is_home_team else 'home']['fullName']
+                            except KeyError:
+                                opponent_pitcher = "Unknown"
 
-                    player_stats.append({
-                        "game_id": game_data['gameData']['game']['pk'],
-                        "game_date": game_date,
-                        "hits": player_game_stats.get('hits', 0),
-                        "runs": player_game_stats.get('runs', 0),
-                        "rbis": player_game_stats.get('rbi', 0),
-                        "home_runs": player_game_stats.get('homeRuns', 0),
-                        "walks": player_game_stats.get('baseOnBalls', 0),
-                        "at_bats": player_game_stats.get('atBats', 0),
-                        "avg": round((player_game_stats.get("hits") / player_game_stats.get("atBats")) if player_game_stats.get("atBats") else 0, 3),
-                        "strikeouts": player_game_stats.get('strikeOuts', 0),
-                        "opponent_team": opponent_team['team']['name'],
-                        "opponent_pitcher": opponent_pitcher
-                    })
+                            player_stats.append({
+                                "game_id": game_data['gameData']['game']['pk'],
+                                "game_date": game_date,
+                                "hits": player_game_stats.get('hits', 0),
+                                "runs": player_game_stats.get('runs', 0),
+                                "rbis": player_game_stats.get('rbi', 0),
+                                "home_runs": player_game_stats.get('homeRuns', 0),
+                                "walks": player_game_stats.get('baseOnBalls', 0),
+                                "at_bats": player_game_stats.get('atBats', 0),
+                                "avg": round((player_game_stats.get("hits") / player_game_stats.get("atBats")) if player_game_stats.get("atBats") else 0, 3),
+                                "strikeouts": player_game_stats.get('strikeOuts', 0),
+                                "opponent_team": opponent_team['team']['name'],
+                                "opponent_pitcher": opponent_pitcher
+                            })
+            
+            # Increase search window if we haven't found enough games
+            days_to_search *= 2
         
+        # Sort by date and limit to requested number of games
         player_stats.sort(key=lambda x: x['game_date'], reverse=True)
+        player_stats = player_stats[:num_games]
         
         return {
             "player_id": player_id,
             "player_name": player_info['fullName'],
-            "recent_stats": player_stats
+            "recent_stats": player_stats,
+            "games_found": len(player_stats)
         }
         
     except Exception as e:
