@@ -1,3 +1,4 @@
+from functools import lru_cache
 from flask import Flask, jsonify
 from flask_cors import CORS
 from cache import fetch_and_cache_game_ids_span, fetch_game_details_batch
@@ -28,6 +29,7 @@ def get_team(team_id):
         return jsonify({"error": "Team not found"}), 404
 
 
+@lru_cache(maxsize=128)
 @app.route("/schedule/<int:team_id>", methods=["GET"])
 def get_schedule(team_id):
     return jsonify(schedule(team_id))
