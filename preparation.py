@@ -10,7 +10,7 @@ from calculations import (
     calculate_team_total_run_occurrence_percentage_5_innings,
     fetch_and_cache_pitcher_info,
 )
-
+from functools import lru_cache
 from cache import fetch_and_cache_game_ids_span
 
 
@@ -29,7 +29,7 @@ async def get_nrfi_occurence(team_id, num_days):
     nrfi_occurence = calculate_nrfi_occurrence(first_inning_list)
     return nrfi_occurence
 
-
+@lru_cache(maxsize=128)
 def schedule(team_id, num_days=None):
     base_date = datetime.date(2024, 9, 29)
 
@@ -112,6 +112,7 @@ def schedule(team_id, num_days=None):
     return games_with_pitcher_info
 
 
+@lru_cache(maxsize=128)
 async def get_moneyline_scores_first_5_innings(team_id, num_days):
     game_ids = await fetch_and_cache_game_ids_span(team_id, num_days)
     results = []
@@ -123,6 +124,7 @@ async def get_moneyline_scores_first_5_innings(team_id, num_days):
     return results
 
 
+@lru_cache(maxsize=128)
 async def get_overs_first_5_innings(team_id, num_days):
     game_ids = await fetch_and_cache_game_ids_span(team_id, num_days)
     runs_per_game = []
@@ -150,6 +152,7 @@ def get_list_of_runs_selected_team(game_id, team_id):
     return list_of_runs
 
 
+@lru_cache(maxsize=128)
 def get_team_stats(team_id, num_days):
     return {
         "nrfi": get_nrfi_occurence(team_id, num_days),

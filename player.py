@@ -30,6 +30,7 @@ def search_player_by_name(name: str) -> List[Dict[str, Union[str, int]]]:
         print(f"Error searching for player: {e}")
         return []
 
+@lru_cache(maxsize=128)
 def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]:
     try:
         # Direct API call to get player data with stats for specific season 
@@ -151,6 +152,7 @@ async def fetch_game_data_async(game_id: int) -> dict:
     """Fetch game data asynchronously, using cache when available"""
     return await asyncio.to_thread(get_game_data, game_id)
 
+@lru_cache(maxsize=128)
 async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, Union[str, List[Dict[str, Union[str, int]]]]]:
     try:
         player_info = lookup_player(player_id)
@@ -163,10 +165,9 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
         
         end_date = datetime.date(2024, 9, 29)
         player_stats = []
-        days_to_search = 30  # Initial search window
+        days_to_search = 30  
         
-        # Keep searching until we find enough games or hit a reasonable limit
-        while len(player_stats) < num_games and days_to_search <= 180:  # Max 180 days back
+        while len(player_stats) < num_games and days_to_search <= 180:
             start_date = end_date - datetime.timedelta(days=days_to_search)
             
             recent_games = await asyncio.to_thread(
@@ -176,12 +177,21 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                 end_date=end_date.strftime("%Y-%m-%d")
             )
             
-            # Filter completed games
-            recent_game_ids = [game['game_id'] for game in recent_games if game['status'] == 'Final']
+            # Filter completed games and sort by date in descending order
+            recent_game_ids = [game['game_id'] for game in sorted(
+                [game for game in recent_games if game['status'] == 'Final'],
+                key=lambda x: x['game_datetime'],
+                reverse=True
+            )]
             
-            # Fetch game data concurrently
             tasks = [fetch_game_data_async(game_id) for game_id in recent_game_ids]
             game_data_list = await asyncio.gather(*tasks)
+            
+            # Sort game data by date in descending order
+            game_data_list.sort(
+                key=lambda x: x['gameData']['datetime']['dateTime'],
+                reverse=True
+            )
             
             for game_data in game_data_list:
                 if len(player_stats) >= num_games:
