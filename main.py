@@ -188,4 +188,4 @@ async def get_recent_player_stats(player_id, num_days):
 
 if __name__ == "__main__":
     # print(app.url_map)
-    app.run(debug=True)  
+    app.run(debug=False)  
