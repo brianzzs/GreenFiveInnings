@@ -138,10 +138,10 @@ def fetch_and_cache_pitcher_info(game_id, data=None):
     away_pitcher = probable_pitchers.get("away", {"fullName": "TBD", "id": "TBD"})
 
     home_pitcher_hand = players.get(
-        "ID" + str(home_pitcher["id"]), {"pitchHand": {"code": "Unknown"}}
+        "ID" + str(home_pitcher["id"]), {"pitchHand": {"code": "TBD"}}
     )["pitchHand"]["code"]
     away_pitcher_hand = players.get(
-        "ID" + str(away_pitcher["id"]), {"pitchHand": {"code": "Unknown"}}
+        "ID" + str(away_pitcher["id"]), {"pitchHand": {"code": "TBD"}}
     )["pitchHand"]["code"]
 
     try:
@@ -181,7 +181,7 @@ def parse_stats(stats_string: str) -> dict:
     lines = stats_string.split("\n")
     stats = dict(line.split(": ") for line in lines if ": " in line)
     return {
-        "wins": stats.get("wins", "Unknown"),
-        "losses": stats.get("losses", "Unknown"),
-        "era": stats.get("era", "Unknown"),
+        "wins": stats.get("wins", "TBD"),
+        "losses": stats.get("losses", "TBD"),
+        "era": stats.get("era", "TBD"),
     }

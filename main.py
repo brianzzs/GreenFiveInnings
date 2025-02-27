@@ -8,7 +8,7 @@ from preparation import (
     get_team_stats,
 )
 import aiohttp
-from player import search_player_by_name, get_player_stats, get_player_recent_stats
+from player import search_player_by_name, get_player_stats, get_player_recent_stats, get_player_betting_stats
 
 
 app = Flask(__name__)
@@ -61,11 +61,11 @@ async def get_stats_batch(team_id: int, num_days: int) -> dict:
             )
 
             home_pitcher_hand = players.get(
-                "ID" + str(home_pitcher["id"]), {"pitchHand": {"code": "Unknown"}}
+                "ID" + str(home_pitcher["id"]), {"pitchHand": {"code": "TBD"}}
             )["pitchHand"]["code"]
 
             away_pitcher_hand = players.get(
-                "ID" + str(away_pitcher["id"]), {"pitchHand": {"code": "Unknown"}}
+                "ID" + str(away_pitcher["id"]), {"pitchHand": {"code": "TBD"}}
             )["pitchHand"]["code"]
 
             if linescore:
@@ -93,7 +93,7 @@ async def get_stats_batch(team_id: int, num_days: int) -> dict:
                     "away_team": {
                         "id": game_data["teams"]["away"]["id"],
                         "name": TEAM_NAMES.get(
-                            game_data["teams"]["away"]["id"], "Unknown"
+                            game_data["teams"]["away"]["id"], "TBD"
                         ),
                         "runs": [inning["away"]["runs"] for inning in f5_innings],
                         "probable_pitcher": {
@@ -108,7 +108,7 @@ async def get_stats_batch(team_id: int, num_days: int) -> dict:
                     "home_team": {
                         "id": game_data["teams"]["home"]["id"],
                         "name": TEAM_NAMES.get(
-                            game_data["teams"]["home"]["id"], "Unknown"
+                            game_data["teams"]["home"]["id"], "TBD"
                         ),
                         "runs": [inning["home"]["runs"] for inning in f5_innings],
                         "probable_pitcher": {
@@ -183,6 +183,12 @@ def get_player(player_id, season):
 @app.route("/player/recent-stats/<int:player_id>/<int:num_days>", methods=["GET"])
 async def get_recent_player_stats(player_id, num_days):
     stats = await get_player_recent_stats(player_id, num_days)
+    return jsonify(stats)
+
+
+@app.route("/player/betting-stats/<int:player_id>/<int:num_games>", methods=["GET"])
+async def get_player_betting_stats_route(player_id, num_games):
+    stats = await get_player_betting_stats(player_id, num_games)
     return jsonify(stats)
 
 

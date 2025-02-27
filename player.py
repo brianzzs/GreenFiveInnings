@@ -152,8 +152,11 @@ async def fetch_game_data_async(game_id: int) -> dict:
     """Fetch game data asynchronously, using cache when available"""
     return await asyncio.to_thread(get_game_data, game_id)
 
-@lru_cache(maxsize=128)
 async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, Union[str, List[Dict[str, Union[str, int]]]]]:
+    """
+    Get recent game stats for a player
+    Don't use lru_cache on async functions - they don't work together
+    """
     try:
         player_info = lookup_player(player_id)
         team_id = player_info.get('currentTeam', {}).get('id')
@@ -268,3 +271,122 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
     except Exception as e:
         print(f"Error fetching recent player stats: {e}")
         return {"error": f"Error fetching recent player stats: {str(e)}"}
+
+def calculate_betting_stats(recent_stats: List[Dict], is_pitcher: bool) -> Dict[str, float]:
+    """Calculate percentages for common betting markets based on recent game stats"""
+    total_games = len(recent_stats)
+    if total_games == 0:
+        return {"error": "No games found"}
+    
+    betting_markets = {}
+    
+    if is_pitcher:
+        # Pitcher betting markets
+        innings_pitched_thresholds = [4.5, 5.5, 6.5]
+        for threshold in innings_pitched_thresholds:
+            games_over = sum(1 for game in recent_stats if float(game.get('innings_pitched', 0)) > threshold)
+            betting_markets[f"over_{str(threshold).replace('.', '_')}_innings_pitched"] = round(games_over / total_games * 100, 2)
+        
+        # Hits allowed
+        hits_allowed_thresholds = [3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]
+        for threshold in hits_allowed_thresholds:
+            games_over = sum(1 for game in recent_stats if game.get('hits_allowed', 0) > threshold)
+            betting_markets[f"over_{str(threshold).replace('.', '_')}_hits_allowed"] = round(games_over / total_games * 100, 2)
+        
+        # Runs allowed
+        runs_allowed_thresholds = [1.5, 2.5, 3.5, 4.5, 5.5]
+        for threshold in runs_allowed_thresholds:
+            # If we have runs_allowed in stats
+            if 'runs_allowed' in recent_stats[0]:
+                games_over = sum(1 for game in recent_stats if game.get('runs_allowed', 0) > threshold)
+            else:
+                # Approximate using hits and walks (not ideal)
+                games_over = sum(1 for game in recent_stats if (game.get('hits_allowed', 0) + game.get('walks_allowed', 0)) / 3 > threshold)
+            betting_markets[f"over_{str(threshold).replace('.', '_')}_runs_allowed"] = round(games_over / total_games * 100, 2)
+        
+        # Strikeouts
+        k_thresholds = [3.5, 4.5, 5.5, 6.5, 7.5, 8.5]
+        for threshold in k_thresholds:
+            games_over = sum(1 for game in recent_stats if game.get('strikeouts', 0) > threshold)
+            betting_markets[f"over_{str(threshold).replace('.', '_')}_strikeouts"] = round(games_over / total_games * 100, 2)
+    
+    else:
+        # Batter betting markets
+        
+        # Hits
+        hit_thresholds = [0.5, 1.5, 2.5]
+        for threshold in hit_thresholds:
+            games_over = sum(1 for game in recent_stats if game.get('hits', 0) > threshold)
+            betting_markets[f"over_{str(threshold).replace('.', '_')}_hits"] = round(games_over / total_games * 100, 2)
+        
+        # Total bases (calculate from hits, doubles, triples, home runs)
+        for game in recent_stats:
+            # Calculate total bases if not present
+            if 'total_bases' not in game:
+                singles = game.get('hits', 0) - game.get('doubles', 0) - game.get('triples', 0) - game.get('home_runs', 0)
+                game['total_bases'] = singles + 2 * game.get('doubles', 0) + 3 * game.get('triples', 0) + 4 * game.get('home_runs', 0)
+                
+                # If we only have hits and home runs
+                if 'doubles' not in game and 'triples' not in game:
+                    game['total_bases'] = game.get('hits', 0) + 3 * game.get('home_runs', 0)
+        
+        base_thresholds = [1.5, 2.5, 3.5]
+        for threshold in base_thresholds:
+            games_over = sum(1 for game in recent_stats if game.get('total_bases', 0) > threshold)
+            betting_markets[f"over_{str(threshold).replace('.', '_')}_total_bases"] = round(games_over / total_games * 100, 2)
+        
+        # Home runs
+        hr_threshold = 0.5
+        games_over = sum(1 for game in recent_stats if game.get('home_runs', 0) > hr_threshold)
+        betting_markets[f"over_{str(hr_threshold).replace('.', '_')}_home_runs"] = round(games_over / total_games * 100, 2)
+        
+        # RBIs
+        rbi_thresholds = [0.5, 1.5, 2.5]
+        for threshold in rbi_thresholds:
+            games_over = sum(1 for game in recent_stats if game.get('rbis', 0) > threshold)
+            betting_markets[f"over_{str(threshold).replace('.', '_')}_rbis"] = round(games_over / total_games * 100, 2)
+        
+        # Hits + Runs + RBIs combined
+        hr_rbi_thresholds = [1.5, 2.5, 3.5, 4.5]
+        for threshold in hr_rbi_thresholds:
+            games_over = sum(1 for game in recent_stats if (game.get('hits', 0) + game.get('runs', 0) + game.get('rbis', 0)) > threshold)
+            betting_markets[f"over_{str(threshold).replace('.', '_')}_hits_runs_rbis"] = round(games_over / total_games * 100, 2)
+    
+    return betting_markets
+
+async def get_player_betting_stats(player_id: int, num_games: int) -> Dict[str, Union[str, Dict]]:
+    """Get player stats with betting market analysis based on player type"""
+    player_data = await get_player_recent_stats(player_id, num_games)
+    
+    if "error" in player_data:
+        return player_data
+    
+    player_info = lookup_player(player_id)
+    position = player_info.get('primaryPosition', {}).get('abbreviation', 'N/A')
+    is_pitcher = position == 'P'
+    is_two_way = position == 'TWP'
+    
+    # For TWP players, we need to get both hitting and pitching stats
+    if is_two_way:
+        # We already have the stats from get_player_recent_stats
+        # But we need to split the calculation for both roles
+        
+        # First, determine if we have enough games for both roles
+        # This would be a future enhancement - for now we'll use the same stats
+        batting_stats = calculate_betting_stats(player_data.get('recent_stats', []), False)
+        pitching_stats = calculate_betting_stats(player_data.get('recent_stats', []), True)
+        
+        # Add both types of betting stats to the response
+        player_data['betting_stats'] = {
+            'hitting': batting_stats,
+            'pitching': pitching_stats
+        }
+    else:
+        # Regular player (pitcher or batter)
+        betting_stats = calculate_betting_stats(player_data.get('recent_stats', []), is_pitcher)
+        player_data['betting_stats'] = betting_stats
+    
+    # Add player type info to help front-end display appropriate stats
+    player_data['player_type'] = 'TWP' if is_two_way else ('Pitcher' if is_pitcher else 'Batter')
+    
+    return player_data

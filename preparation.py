@@ -31,7 +31,7 @@ async def get_nrfi_occurence(team_id, num_days):
 
 @lru_cache(maxsize=128)
 def schedule(team_id, num_days=None):
-    base_date = datetime.date(2024, 9, 29)
+    base_date = datetime.date(2025, 3, 27)
 
     if num_days is not None:
         start_date = base_date - datetime.timedelta(days=num_days)
