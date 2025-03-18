@@ -193,5 +193,4 @@ async def get_player_betting_stats_route(player_id, num_games):
 
 
 if __name__ == "__main__":
-    # print(app.url_map)
     app.run(debug=False)  

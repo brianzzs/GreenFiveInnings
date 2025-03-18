@@ -60,7 +60,6 @@ async def fetch_and_cache_game_ids_span(team_id, num_days=None):
 
 
 async def fetch_schedule(date, team_id):
-    # Convert sync function to async using to_thread
     print(
         f"Fetching schedule for team {team_id} from {date['start_date']} to {date['end_date']}"
     )
@@ -87,7 +86,6 @@ async def fetch_game_details_batch(
         if game_id in GAME_CACHE:
             return GAME_CACHE[game_id]
 
-        # Using statsapi through asyncio.to_thread since it's synchronous
         game_data = await asyncio.to_thread(statsapi.get, "game", {"gamePk": game_id})
         GAME_CACHE[game_id] = game_data
         return game_data
