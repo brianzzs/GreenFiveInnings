@@ -1,5 +1,6 @@
 import datetime
 import statsapi
+import pytz
 from calculations import (
     TEAM_NAMES,
     get_ml_results,
@@ -12,6 +13,14 @@ from calculations import (
 )
 from functools import lru_cache
 from cache import fetch_and_cache_game_ids_span
+
+
+def convert_utc_to_local(utc_datetime_str):
+    utc_dt = datetime.datetime.strptime(utc_datetime_str, "%Y-%m-%dT%H:%M:%SZ")
+    utc_dt = pytz.UTC.localize(utc_dt)
+    local_tz = pytz.timezone('America/New_York')  # Using Eastern Time as default
+    local_dt = utc_dt.astimezone(local_tz)
+    return local_dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_game_details(game_id):
@@ -46,20 +55,14 @@ def get_today_schedule():
 
         game_with_pitcher_info = {
             "game_id": game["game_id"],
-            "game_datetime": datetime.datetime.strptime(
-                game["game_datetime"], "%Y-%m-%dT%H:%M:%SZ"
-            ).strftime("%Y-%m-%d %H:%M:%S"),
+            "game_datetime": convert_utc_to_local(game["game_datetime"]),
             "away_team": {
                 "name": game["away_name"],
                 "id": game["away_id"],
                 "wins": game_details["gameData"]["teams"]["away"]["record"]["wins"],
                 "losses": game_details["gameData"]["teams"]["away"]["record"]["losses"],
                 "probable_pitcher": {
-                    "name": (
-                        game["away_probable_pitcher"]
-                        if game["away_probable_pitcher"]
-                        else "TBD"
-                    ),
+                    "name": game["away_probable_pitcher"] if game["away_probable_pitcher"] else "TBD",
                     "id": pitcher_info["awayPitcherID"],
                     "hand": pitcher_info["awayPitcherHand"],
                     "wins": pitcher_info["awayPitcherWins"],
@@ -73,11 +76,7 @@ def get_today_schedule():
                 "wins": game_details["gameData"]["teams"]["home"]["record"]["wins"],
                 "losses": game_details["gameData"]["teams"]["home"]["record"]["losses"],
                 "probable_pitcher": {
-                    "name": (
-                        game["home_probable_pitcher"]
-                        if game["home_probable_pitcher"]
-                        else "TBD"
-                    ),
+                    "name": game["home_probable_pitcher"] if game["home_probable_pitcher"] else "TBD",
                     "id": pitcher_info["homePitcherID"],
                     "hand": pitcher_info["homePitcherHand"],
                     "wins": pitcher_info["homePitcherWins"],
@@ -120,20 +119,14 @@ def schedule(team_id, num_days=None):
 
         game_with_pitcher_info = {
             "game_id": game["game_id"],
-            "game_datetime": datetime.datetime.strptime(
-                game["game_datetime"], "%Y-%m-%dT%H:%M:%SZ"
-            ).strftime("%Y-%m-%d %H:%M:%S"),
+            "game_datetime": convert_utc_to_local(game["game_datetime"]),
             "away_team": {
                 "name": game["away_name"],
                 "id": game["away_id"],
                 "wins": game_details["gameData"]["teams"]["away"]["record"]["wins"],
                 "losses": game_details["gameData"]["teams"]["away"]["record"]["losses"],
                 "probable_pitcher": {
-                    "name": (
-                        game["away_probable_pitcher"]
-                        if game["away_probable_pitcher"]
-                        else "TBD"
-                    ),
+                    "name": game["away_probable_pitcher"] if game["away_probable_pitcher"] else "TBD",
                     "id": pitcher_info["awayPitcherID"],
                     "hand": pitcher_info["awayPitcherHand"],
                     "wins": pitcher_info["awayPitcherWins"],
@@ -147,11 +140,7 @@ def schedule(team_id, num_days=None):
                 "wins": game_details["gameData"]["teams"]["home"]["record"]["wins"],
                 "losses": game_details["gameData"]["teams"]["home"]["record"]["losses"],
                 "probable_pitcher": {
-                    "name": (
-                        game["home_probable_pitcher"]
-                        if game["home_probable_pitcher"]
-                        else "TBD"
-                    ),
+                    "name": game["home_probable_pitcher"] if game["home_probable_pitcher"] else "TBD",
                     "id": pitcher_info["homePitcherID"],
                     "hand": pitcher_info["homePitcherHand"],
                     "wins": pitcher_info["homePitcherWins"],
@@ -238,20 +227,14 @@ def get_next_game_schedule(team_id):
 
         game_with_pitcher_info = {
             "game_id": game["game_id"],
-            "game_datetime": datetime.datetime.strptime(
-                game["game_datetime"], "%Y-%m-%dT%H:%M:%SZ"
-            ).strftime("%Y-%m-%d %H:%M:%S"),
+            "game_datetime": convert_utc_to_local(game["game_datetime"]),
             "away_team": {
                 "name": game["away_name"],
                 "id": game["away_id"],
                 "wins": game_details["gameData"]["teams"]["away"]["record"]["wins"],
                 "losses": game_details["gameData"]["teams"]["away"]["record"]["losses"],
                 "probable_pitcher": {
-                    "name": (
-                        game["away_probable_pitcher"]
-                        if game["away_probable_pitcher"]
-                        else "TBD"
-                    ),
+                    "name": game["away_probable_pitcher"] if game["away_probable_pitcher"] else "TBD",
                     "id": pitcher_info["awayPitcherID"],
                     "hand": pitcher_info["awayPitcherHand"],
                     "wins": pitcher_info["awayPitcherWins"],
@@ -265,11 +248,7 @@ def get_next_game_schedule(team_id):
                 "wins": game_details["gameData"]["teams"]["home"]["record"]["wins"],
                 "losses": game_details["gameData"]["teams"]["home"]["record"]["losses"],
                 "probable_pitcher": {
-                    "name": (
-                        game["home_probable_pitcher"]
-                        if game["home_probable_pitcher"]
-                        else "TBD"
-                    ),
+                    "name": game["home_probable_pitcher"] if game["home_probable_pitcher"] else "TBD",
                     "id": pitcher_info["homePitcherID"],
                     "hand": pitcher_info["homePitcherHand"],
                     "wins": pitcher_info["homePitcherWins"],
