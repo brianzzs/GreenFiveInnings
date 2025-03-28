@@ -304,9 +304,9 @@ def calculate_betting_stats(recent_stats: List[Dict], is_pitcher: bool) -> Dict[
         
         runs_allowed_thresholds = [1.5, 2.5, 3.5, 4.5, 5.5]
         for threshold in runs_allowed_thresholds:
-            # If we have runs_allowed in stats
-            if 'run' in recent_stats[0]:
-                games_over = sum(1 for game in recent_stats if game.get('runs_allowed', 0) > threshold)
+            if 'runs' in recent_stats[0]:
+                games_over = sum(1 for game in recent_stats if game.get('runs', 0) > threshold)
+                print(games_over)
             else:
                 games_over = sum(1 for game in recent_stats if (game.get('hits_allowed', 0) + game.get('walks_allowed', 0)) / 3 > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_runs_allowed"] = round(games_over / total_games * 100, 2)
@@ -316,6 +316,7 @@ def calculate_betting_stats(recent_stats: List[Dict], is_pitcher: bool) -> Dict[
         for threshold in k_thresholds:
             games_over = sum(1 for game in recent_stats if game.get('strikeouts', 0) > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_strikeouts"] = round(games_over / total_games * 100, 2)
+        print(betting_markets)
     
     else:
         # Batter betting markets
