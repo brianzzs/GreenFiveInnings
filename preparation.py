@@ -209,13 +209,21 @@ def get_team_stats(team_id, num_days):
 @lru_cache(maxsize=128)
 def get_next_game_schedule(team_id):
     base_date = datetime.date.today()
-    next_date = base_date + datetime.timedelta(days=1)
-    formatted_date = next_date.strftime("%m/%d/%Y")
+    formatted_date = base_date.strftime("%m/%d/%Y")
 
     if team_id == 0:
         next_games = statsapi.schedule(start_date=formatted_date)
     else:
         next_games = statsapi.schedule(start_date=formatted_date, team=team_id)
+
+    # If no games today, look for tomorrow's games
+    if not next_games:
+        next_date = base_date + datetime.timedelta(days=1)
+        formatted_date = next_date.strftime("%m/%d/%Y")
+        if team_id == 0:
+            next_games = statsapi.schedule(start_date=formatted_date)
+        else:
+            next_games = statsapi.schedule(start_date=formatted_date, team=team_id)
 
     if not next_games:
         return []
