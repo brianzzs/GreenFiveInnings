@@ -166,7 +166,7 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
         if not team_id:
             return {"error": "Team ID not found for player"}
         
-        end_date = datetime.date(2024, 9, 29)
+        end_date = datetime.date.today()
         player_stats = []
         days_to_search = 30  
         
@@ -190,7 +190,6 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
             tasks = [fetch_game_data_async(game_id) for game_id in recent_game_ids]
             game_data_list = await asyncio.gather(*tasks)
             
-            # Sort game data by date in descending order
             game_data_list.sort(
                 key=lambda x: x['gameData']['datetime']['dateTime'],
                 reverse=True
@@ -287,13 +286,11 @@ def calculate_betting_stats(recent_stats: List[Dict], is_pitcher: bool) -> Dict[
             games_over = sum(1 for game in recent_stats if float(game.get('innings_pitched', 0)) > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_innings_pitched"] = round(games_over / total_games * 100, 2)
         
-        # Hits allowed
         hits_allowed_thresholds = [3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]
         for threshold in hits_allowed_thresholds:
             games_over = sum(1 for game in recent_stats if game.get('hits_allowed', 0) > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_hits_allowed"] = round(games_over / total_games * 100, 2)
         
-        # Runs allowed
         runs_allowed_thresholds = [1.5, 2.5, 3.5, 4.5, 5.5]
         for threshold in runs_allowed_thresholds:
             # If we have runs_allowed in stats
@@ -313,7 +310,6 @@ def calculate_betting_stats(recent_stats: List[Dict], is_pitcher: bool) -> Dict[
     else:
         # Batter betting markets
         
-        # Hits
         hit_thresholds = [0.5, 1.5, 2.5]
         for threshold in hit_thresholds:
             games_over = sum(1 for game in recent_stats if game.get('hits', 0) > threshold)
@@ -382,7 +378,6 @@ async def get_player_betting_stats(player_id: int, num_games: int) -> Dict[str, 
             'pitching': pitching_stats
         }
     else:
-        # Regular player (pitcher or batter)
         betting_stats = calculate_betting_stats(player_data.get('recent_stats', []), is_pitcher)
         player_data['betting_stats'] = betting_stats
     
