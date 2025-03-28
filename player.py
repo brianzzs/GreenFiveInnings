@@ -122,6 +122,7 @@ def format_stats(stats: Dict, is_pitcher: bool) -> Dict[str, str]:
             "losses": str(stats.get('losses', 'N/A')),
             "saves": str(stats.get('saves', 'N/A')),
             "strikeouts": str(stats.get('strikeOuts', 'N/A')),
+            "runs": str(stats.get('runs', 'N/A')),
             "whip": str(stats.get('whip', 'N/A')),
             "walks": str(stats.get('baseOnBalls', 'N/A'))
         }
@@ -224,6 +225,7 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                                 "home_runs_allowed": player_game_stats.get('homeRuns', 0),
                                 "walks_allowed": player_game_stats.get('baseOnBalls', 0),
                                 "strikeouts": player_game_stats.get('strikeOuts', 0),
+                                "runs": player_game_stats.get('runs', 0),
                                 "opponent_team": TEAM_NAMES.get(opponent_team['team']['id'], 'Unknown')
                             })
                     else:
@@ -294,10 +296,9 @@ def calculate_betting_stats(recent_stats: List[Dict], is_pitcher: bool) -> Dict[
         runs_allowed_thresholds = [1.5, 2.5, 3.5, 4.5, 5.5]
         for threshold in runs_allowed_thresholds:
             # If we have runs_allowed in stats
-            if 'runs_allowed' in recent_stats[0]:
+            if 'run' in recent_stats[0]:
                 games_over = sum(1 for game in recent_stats if game.get('runs_allowed', 0) > threshold)
             else:
-                # Approximate using hits and walks (not ideal)
                 games_over = sum(1 for game in recent_stats if (game.get('hits_allowed', 0) + game.get('walks_allowed', 0)) / 3 > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_runs_allowed"] = round(games_over / total_games * 100, 2)
         
