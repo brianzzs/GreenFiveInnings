@@ -170,6 +170,7 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
         end_date = datetime.date.today()
         player_stats = []
         days_to_search = 30  
+        seen_dates = set()  # Track dates we've already processed
         
         while len(player_stats) < num_games and days_to_search <= 180:
             start_date = end_date - datetime.timedelta(days=days_to_search)
@@ -211,6 +212,14 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                 player_key = f'ID{player_id}'
                 if player_key in players:
                     game_date = game_data['gameData']['datetime']['dateTime']
+                    # Extract just the date part (YYYY-MM-DD) for deduplication
+                    date_only = game_date.split('T')[0]
+                    
+                    # Skip if we've already seen this date
+                    if date_only in seen_dates:
+                        continue
+                        
+                    seen_dates.add(date_only)
                     
                     if is_pitcher:
                         # For pitchers, check if they actually pitched in the game
