@@ -7,6 +7,7 @@ from preparation import (
     schedule,
     get_team_stats,
     get_next_game_schedule,
+    get_today_schedule,
 )
 import aiohttp
 from player import search_player_by_name, get_player_stats, get_player_recent_stats, get_player_betting_stats
@@ -97,6 +98,7 @@ async def get_stats_batch(team_id: int, num_days: int) -> dict:
 
             moneyline_results.append(
                 {
+                    "game_date": game_data["datetime"]["originalDate"],
                     "away_team": {
                         "id": game_data["teams"]["away"]["id"],
                         "name": TEAM_NAMES.get(
@@ -160,22 +162,10 @@ async def get_stats_batch(team_id: int, num_days: int) -> dict:
         }
 
 
+@app.route("/today_schedule", methods=["GET"])
+def today_schedule():
+    return jsonify(get_today_schedule())
 
-@app.route("/schedule_today", methods=["GET"])
-def get_schedule_today():
-    return jsonify(schedule(0))
-
-
-@app.route("/compare-teams/<int:team_id1>/<int:team_id2>", methods=["GET"])
-def compare_teams(team_id1, team_id2):
-    stats_team1 = get_team_stats(team_id1, 20)
-    stats_team2 = get_team_stats(team_id2, 20)
-
-    combined_stats = {
-        "team1": {"id": team_id1, "stats": stats_team1},
-        "team2": {"id": team_id2, "stats": stats_team2},
-    }
-    return combined_stats
 
 @app.route("/player/search/<string:name>", methods=["GET"])
 def search_player(name):

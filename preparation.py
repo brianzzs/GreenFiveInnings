@@ -30,6 +30,67 @@ async def get_nrfi_occurence(team_id, num_days):
     return nrfi_occurence
 
 @lru_cache(maxsize=128)
+def get_today_schedule():
+    base_date = datetime.date.today()
+    formatted_date = base_date.strftime("%m/%d/%Y")
+
+    next_games = statsapi.schedule(start_date=formatted_date, end_date=formatted_date)
+
+    if not next_games:
+        return []
+
+    games_with_pitcher_info = []
+    for game in next_games:
+        game_details = get_game_details(game["game_id"])
+        pitcher_info = fetch_and_cache_pitcher_info(game["game_id"], game_details)
+
+        game_with_pitcher_info = {
+            "game_id": game["game_id"],
+            "game_datetime": datetime.datetime.strptime(
+                game["game_datetime"], "%Y-%m-%dT%H:%M:%SZ"
+            ).strftime("%Y-%m-%d %H:%M:%S"),
+            "away_team": {
+                "name": game["away_name"],
+                "id": game["away_id"],
+                "wins": game_details["gameData"]["teams"]["away"]["record"]["wins"],
+                "losses": game_details["gameData"]["teams"]["away"]["record"]["losses"],
+                "probable_pitcher": {
+                    "name": (
+                        game["away_probable_pitcher"]
+                        if game["away_probable_pitcher"]
+                        else "TBD"
+                    ),
+                    "id": pitcher_info["awayPitcherID"],
+                    "hand": pitcher_info["awayPitcherHand"],
+                    "wins": pitcher_info["awayPitcherWins"],
+                    "losses": pitcher_info["awayPitcherLosses"],
+                    "era": pitcher_info["awayPitcherERA"],
+                },
+            },
+            "home_team": {
+                "name": game["home_name"],
+                "id": game["home_id"],
+                "wins": game_details["gameData"]["teams"]["home"]["record"]["wins"],
+                "losses": game_details["gameData"]["teams"]["home"]["record"]["losses"],
+                "probable_pitcher": {
+                    "name": (
+                        game["home_probable_pitcher"]
+                        if game["home_probable_pitcher"]
+                        else "TBD"
+                    ),
+                    "id": pitcher_info["homePitcherID"],
+                    "hand": pitcher_info["homePitcherHand"],
+                    "wins": pitcher_info["homePitcherWins"],
+                    "losses": pitcher_info["homePitcherLosses"],
+                    "era": pitcher_info["homePitcherERA"],
+                },
+            },
+        }
+        games_with_pitcher_info.append(game_with_pitcher_info)
+
+    return games_with_pitcher_info
+
+@lru_cache(maxsize=128)
 def schedule(team_id, num_days=None):
     base_date = datetime.date.today()
 
@@ -41,24 +102,16 @@ def schedule(team_id, num_days=None):
 
     formatted_end_date = base_date.strftime("%m/%d/%Y")
 
-    if team_id == 0:
-        next_games = statsapi.schedule(
-            start_date=formatted_start_date, end_date=formatted_end_date
-        )
-    else:
-        next_games = statsapi.schedule(
-            start_date=formatted_start_date, end_date=formatted_end_date, team=team_id
-        )
+    next_games = statsapi.schedule(
+        start_date=formatted_start_date, end_date=formatted_end_date, team=team_id
+    )
 
     if not next_games:
         start_date = base_date + datetime.timedelta(days=1)
         formatted_start_date = start_date.strftime("%m/%d/%Y")
-        if team_id == 0:
-            next_games = statsapi.schedule(start_date=formatted_start_date)
-        else:
-            next_games = statsapi.schedule(
-                start_date=formatted_start_date, team=team_id
-            )
+        next_games = statsapi.schedule(
+            start_date=formatted_start_date, team=team_id
+        )
 
     games_with_pitcher_info = []
     for game in next_games:

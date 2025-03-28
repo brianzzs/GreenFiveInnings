@@ -106,7 +106,7 @@ def fetch_game_data(game_id):
         home_team_runs = sum(inning["home"].get("runs", 0) for inning in linescore_data)
         away_pitcher_id = game_data["probablePitchers"]["away"]["id"]
         home_pitcher_id = game_data["probablePitchers"]["home"]["id"]
-
+        date = game_data["datetime"]["originalDate"]
         return {
             "game_id": game_id,
             "away_team_id": away_team_id,
@@ -116,6 +116,7 @@ def fetch_game_data(game_id):
             "home_team_runs": home_team_runs,
             "away_pitcher_id": away_pitcher_id,
             "home_pitcher_id": home_pitcher_id,
+            "game_date": date,
         }
 
     except Exception as e:
