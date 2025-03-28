@@ -30,8 +30,7 @@ async def fetch_and_cache_game_ids_span(team_id, num_days=None):
     cache_key = f"{team_id}_{num_days}"
     if cache_key in SCHEDULE_CACHE:
         return [game["game_id"] for game in SCHEDULE_CACHE[cache_key]]
-    # Define the hardcoded base date because the season is OVER
-    base_date = datetime.date(2024, 9, 29)
+    base_date = datetime.date.today()
     date_format = "%m/%d/%Y"
 
     if num_days is not None:

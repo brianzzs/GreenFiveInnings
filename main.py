@@ -6,6 +6,7 @@ from calculations import TEAM_NAMES, calculate_win_percentage
 from preparation import (
     schedule,
     get_team_stats,
+    get_next_game_schedule,
 )
 import aiohttp
 from player import search_player_by_name, get_player_stats, get_player_recent_stats, get_player_betting_stats
@@ -27,6 +28,12 @@ def get_team(team_id):
         return jsonify({team_id: team_name})
     else:
         return jsonify({"error": "Team not found"}), 404
+
+
+@lru_cache(maxsize=128)
+@app.route("/next_schedule/<int:team_id>", methods=["GET"])
+def get_next_schedule(team_id):
+    return jsonify(get_next_game_schedule(team_id))
 
 
 @lru_cache(maxsize=128)
