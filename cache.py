@@ -176,10 +176,29 @@ def fetch_and_cache_pitcher_info(game_id, data=None):
 
 @lru_cache(maxsize=128)
 def parse_stats(stats_string: str) -> dict:
-    lines = stats_string.split("\n")
-    stats = dict(line.split(": ") for line in lines if ": " in line)
-    return {
-        "wins": stats.get("wins", "TBD"),
-        "losses": stats.get("losses", "TBD"),
-        "era": stats.get("era", "TBD"),
-    }
+    if not stats_string:
+        return {
+            "wins": "TBD",
+            "losses": "TBD",
+            "era": "TBD"
+        }
+        
+    try:
+        lines = stats_string.split("\n")
+        stats = {}
+        for line in lines:
+            if ": " in line:
+                key, value = line.split(": ", 1)
+                stats[key] = value
+                
+        return {
+            "wins": stats.get("wins", "TBD"),
+            "losses": stats.get("losses", "TBD"),
+            "era": stats.get("era", "TBD")
+        }
+    except Exception:
+        return {
+            "wins": "TBD",
+            "losses": "TBD",
+            "era": "TBD"
+        }
