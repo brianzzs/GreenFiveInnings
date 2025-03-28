@@ -30,7 +30,8 @@ async def fetch_and_cache_game_ids_span(team_id, num_days=None):
     cache_key = f"{team_id}_{num_days}"
     if cache_key in SCHEDULE_CACHE:
         return [game["game_id"] for game in SCHEDULE_CACHE[cache_key]]
-    base_date = datetime.date.today()
+    
+    base_date = datetime.date.today() - datetime.timedelta(days=1)
     date_format = "%m/%d/%Y"
 
     if num_days is not None:
