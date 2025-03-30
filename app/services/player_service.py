@@ -1,17 +1,110 @@
-import statsapi
-import requests
-from typing import List, Dict, Union, Optional
-from calculations import TEAM_NAMES
+from functools import lru_cache
+from typing import Dict, Any, List, Union, Optional
+from app.clients import mlb_stats_client
+from app.utils.calculations import TEAM_NAMES 
 import datetime
 import asyncio
-from functools import lru_cache
+
+@lru_cache(maxsize=128) 
+def parse_stats(stats_string: str) -> dict:
+    """Parses the stats string returned by the MLB API."""
+    if not stats_string:
+        return {
+            "wins": "TBD",
+            "losses": "TBD",
+            "era": "TBD"
+        }
+        
+    try:
+        lines = stats_string.replace('\r\n', '\n').split("\n")
+        stats = {}
+        for line in lines:
+            if ": " in line:
+                key_val = line.split(": ", 1)
+                if len(key_val) == 2:
+                    key, value = key_val
+                    stats[key.strip().lower().replace(' ', '_')] = value.strip()
+                    
+        return {
+            "wins": stats.get("wins", "TBD"),
+            "losses": stats.get("losses", "TBD"),
+            "era": stats.get("era", "TBD")
+        }
+    except Exception as e:
+        print(f"Error parsing stats string: {stats_string}. Error: {e}")
+        return {
+            "wins": "TBD",
+            "losses": "TBD",
+            "era": "TBD"
+        }
+
+def fetch_and_cache_pitcher_info(game_id: int, game_data: Dict = None) -> Dict:
+    """Fetches and processes probable pitcher info for a game."""
+    try:
+        if not game_data:
+            game_data = mlb_stats_client.get_game_data(game_pk=game_id)
+
+        data_root = game_data.get("gameData", {})
+        probable_pitchers_data = data_root.get("probablePitchers", {})
+        players_data = data_root.get("players", {})
+
+        home_pitcher = probable_pitchers_data.get("home", {"fullName": "TBD", "id": "TBD"})
+        away_pitcher = probable_pitchers_data.get("away", {"fullName": "TBD", "id": "TBD"})
+
+        def get_pitcher_hand(pitcher_id):
+            player_key = f'ID{pitcher_id}'
+            player_details = players_data.get(player_key, {})
+            pitch_hand = player_details.get("pitchHand", {})
+            return pitch_hand.get("code", "TBD")
+
+        home_pitcher_hand = get_pitcher_hand(home_pitcher.get("id"))
+        away_pitcher_hand = get_pitcher_hand(away_pitcher.get("id"))
+
+        def get_pitcher_stats(pitcher_id):
+            if pitcher_id == "TBD" or not pitcher_id:
+                return {"wins": "TBD", "losses": "TBD", "era": "TBD"}
+            try:
+                stats_str = mlb_stats_client.get_player_stats(
+                    player_id=pitcher_id, group="pitching", type="season"
+                )
+                return parse_stats(stats_str)
+            except Exception as e:
+                print(f"Failed to get/parse stats for pitcher {pitcher_id}: {e}")
+                return {"wins": "TBD", "losses": "TBD", "era": "TBD"}
+
+        home_pitcher_stats = get_pitcher_stats(home_pitcher.get("id"))
+        away_pitcher_stats = get_pitcher_stats(away_pitcher.get("id"))
+
+        return {
+            "homePitcherID": home_pitcher.get("id", "TBD"),
+            "homePitcher": home_pitcher.get("fullName", "TBD"),
+            "homePitcherHand": home_pitcher_hand,
+            "homePitcherWins": home_pitcher_stats["wins"],
+            "homePitcherLosses": home_pitcher_stats["losses"],
+            "homePitcherERA": home_pitcher_stats["era"],
+            "awayPitcherID": away_pitcher.get("id", "TBD"),
+            "awayPitcher": away_pitcher.get("fullName", "TBD"),
+            "awayPitcherHand": away_pitcher_hand,
+            "awayPitcherWins": away_pitcher_stats["wins"],
+            "awayPitcherLosses": away_pitcher_stats["losses"],
+            "awayPitcherERA": away_pitcher_stats["era"],
+        }
+    except Exception as e:
+        print(f"Error fetching pitcher info for game {game_id}: {e}")
+        return {
+            "homePitcherID": "TBD", "homePitcher": "TBD", "homePitcherHand": "TBD",
+            "homePitcherWins": "TBD", "homePitcherLosses": "TBD", "homePitcherERA": "TBD",
+            "awayPitcherID": "TBD", "awayPitcher": "TBD", "awayPitcherHand": "TBD",
+            "awayPitcherWins": "TBD", "awayPitcherLosses": "TBD", "awayPitcherERA": "TBD",
+        }
+
 
 def search_player_by_name(name: str) -> List[Dict[str, Union[str, int]]]:
     """
     Search for players by name and return a list of matching players with their IDs
     """
     try:
-        players = statsapi.lookup_player(name)
+        players = mlb_stats_client.lookup_player(name)
 
         
         return [
@@ -33,10 +126,7 @@ def search_player_by_name(name: str) -> List[Dict[str, Union[str, int]]]:
 @lru_cache(maxsize=128)
 def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]:
     try:
-        # Direct API call to get player data with stats for specific season 
-        url = f"https://statsapi.mlb.com/api/v1/people/{player_id}?hydrate=stats(group=[hitting,pitching],type=[season],season={season})"
-        response = requests.get(url)
-        data = response.json()
+        data = mlb_stats_client.get_player_info_with_stats(player_id, season)
         
         if not data.get('people'):
             return {"error": "Player not found"}
@@ -46,8 +136,8 @@ def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]
         is_pitcher = position == 'P'
         is_two_way = position == 'TWP'
         
-        hitting_career = statsapi.player_stat_data(player_id, "hitting", "career")
-        pitching_career = statsapi.player_stat_data(player_id, "pitching", "career") if (is_pitcher or is_two_way) else None
+        hitting_career = mlb_stats_client.get_player_stat_data(player_id, "hitting", "career")
+        pitching_career = mlb_stats_client.get_player_stat_data(player_id, "pitching", "career") if (is_pitcher or is_two_way) else None
         
         stats_data = player_info.get('stats', [])
         hitting_stats = {}
@@ -61,9 +151,18 @@ def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]
                 if stat.get('splits'):
                     pitching_stats = stat['splits'][0]['stat']
         
-        # Process career stats
-        hitting_career_stats = hitting_career.get("stats", [])[0].get("stats") if hitting_career else {}
-        pitching_career_stats = pitching_career.get("stats", [])[0].get("stats") if pitching_career else {}
+
+        hitting_career_stats = {}
+        if hitting_career:
+            career_stats_list = hitting_career.get("stats", [])
+            if career_stats_list:
+                 hitting_career_stats = career_stats_list[0].get("stats", {}) 
+
+        pitching_career_stats = {}
+        if pitching_career:
+             career_stats_list = pitching_career.get("stats", [])
+             if career_stats_list:
+                  pitching_career_stats = career_stats_list[0].get("stats", {})
         
         image_urls = {
             "headshot": f"https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/{player_id}/headshot/67/current",
@@ -74,7 +173,7 @@ def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]
             "player_info": {
                 "id": player_info['id'],
                 "full_name": player_info['fullName'],
-                "current_team": TEAM_NAMES.get(player_info.get('stats', {})[0].get('splits', {})[0].get('team', {}).get('id'), 'Not Available'),
+                "current_team": TEAM_NAMES.get(player_info.get('currentTeam', {}).get('id'), 'Not Available'),
                 "position": position,
                 "bat_side": player_info.get('batSide', {}).get('code', 'N/A'),
                 "throw_hand": player_info.get('pitchHand', {}).get('code', 'N/A'),
@@ -122,7 +221,7 @@ def format_stats(stats: Dict, is_pitcher: bool) -> Dict[str, str]:
             "losses": str(stats.get('losses', 'N/A')),
             "saves": str(stats.get('saves', 'N/A')),
             "strikeouts": str(stats.get('strikeOuts', 'N/A')),
-            "runs": str(stats.get('runs', 'N/A')),
+            "earned_runs": str(stats.get('earnedRuns', 'N/A')),
             "whip": str(stats.get('whip', 'N/A')),
             "walks": str(stats.get('baseOnBalls', 'N/A'))
         }
@@ -141,25 +240,17 @@ def format_stats(stats: Dict, is_pitcher: bool) -> Dict[str, str]:
             "ops": str(stats.get('ops', 'N/A'))
         }
 
-@lru_cache(maxsize=128)
-def get_game_data(game_id: int) -> dict:
-    return statsapi.get('game', {'gamePk': game_id})
-
-@lru_cache(maxsize=64)
-def lookup_player(player_id: int) -> dict:
-    return statsapi.lookup_player(player_id)[0]
-
-async def fetch_game_data_async(game_id: int) -> dict:
-    """Fetch game data asynchronously, using cache when available"""
-    return await asyncio.to_thread(get_game_data, game_id)
-
 async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, Union[str, List[Dict[str, Union[str, int]]]]]:
     """
     Get recent game stats for a player
     Don't use lru_cache on async functions - they don't work together
     """
     try:
-        player_info = lookup_player(player_id)
+        player_lookup_result = mlb_stats_client.lookup_player(str(player_id))
+        if not player_lookup_result:
+             return {"error": f"Could not look up player ID {player_id}"}
+        player_info = player_lookup_result[0]
+
         team_id = player_info.get('currentTeam', {}).get('id')
         position = player_info.get('primaryPosition', {}).get('abbreviation', 'N/A')
         is_pitcher = position == 'P'
@@ -174,12 +265,13 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
         
         while len(player_stats) < num_games and days_to_search <= 180:
             start_date = end_date - datetime.timedelta(days=days_to_search)
+            start_date_str = start_date.strftime("%Y-%m-%d")
+            end_date_str = end_date.strftime("%Y-%m-%d")
             
-            recent_games = await asyncio.to_thread(
-                statsapi.schedule,
-                team=team_id,
-                start_date=start_date.strftime("%Y-%m-%d"),
-                end_date=end_date.strftime("%Y-%m-%d")
+            recent_games = await mlb_stats_client.get_schedule_async(
+                team_id=team_id,
+                start_date=start_date_str,
+                end_date=end_date_str
             )
             
             # Filter completed games and sort by date in descending order
@@ -189,7 +281,7 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                 reverse=True
             )]
             
-            tasks = [fetch_game_data_async(game_id) for game_id in recent_game_ids]
+            tasks = [mlb_stats_client.get_game_data_async(game_id) for game_id in recent_game_ids]
             game_data_list = await asyncio.gather(*tasks)
             
             game_data_list.sort(
@@ -212,7 +304,6 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                 player_key = f'ID{player_id}'
                 if player_key in players:
                     game_date = game_data['gameData']['datetime']['dateTime']
-                    # Extract just the date part (YYYY-MM-DD) for deduplication
                     date_only = game_date.split('T')[0]
                     
                     # Skip if we've already seen this date
@@ -222,7 +313,6 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                     seen_dates.add(date_only)
                     
                     if is_pitcher:
-                        # For pitchers, check if they actually pitched in the game
                         player_game_stats = players[player_key].get('stats', {}).get('pitching', {})
                         if player_game_stats.get('inningsPitched'):  # Only include games where they pitched
                             opponent_team = away_team if home_team['team']['id'] == team_id else home_team
@@ -267,7 +357,6 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
             # Increase search window if we haven't found enough games
             days_to_search *= 2
         
-        # Sort by date and limit to requested number of games
         player_stats.sort(key=lambda x: x['game_date'], reverse=True)
         player_stats = player_stats[:num_games]
         
@@ -306,7 +395,6 @@ def calculate_betting_stats(recent_stats: List[Dict], is_pitcher: bool) -> Dict[
         for threshold in runs_allowed_thresholds:
             if 'runs' in recent_stats[0]:
                 games_over = sum(1 for game in recent_stats if game.get('runs', 0) > threshold)
-                print(games_over)
             else:
                 games_over = sum(1 for game in recent_stats if (game.get('hits_allowed', 0) + game.get('walks_allowed', 0)) / 3 > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_runs_allowed"] = round(games_over / total_games * 100, 2)
@@ -316,11 +404,9 @@ def calculate_betting_stats(recent_stats: List[Dict], is_pitcher: bool) -> Dict[
         for threshold in k_thresholds:
             games_over = sum(1 for game in recent_stats if game.get('strikeouts', 0) > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_strikeouts"] = round(games_over / total_games * 100, 2)
-        print(betting_markets)
     
     else:
         # Batter betting markets
-        
         hit_thresholds = [0.5, 1.5, 2.5]
         for threshold in hit_thresholds:
             games_over = sum(1 for game in recent_stats if game.get('hits', 0) > threshold)
@@ -368,7 +454,11 @@ async def get_player_betting_stats(player_id: int, num_games: int) -> Dict[str, 
     if "error" in player_data:
         return player_data
     
-    player_info = lookup_player(player_id)
+    player_lookup_result = mlb_stats_client.lookup_player(str(player_id))
+    if not player_lookup_result:
+         return {"error": f"Could not look up player ID {player_id} for betting stats"}
+    player_info = player_lookup_result[0]
+
     position = player_info.get('primaryPosition', {}).get('abbreviation', 'N/A')
     is_pitcher = position == 'P'
     is_two_way = position == 'TWP'
@@ -379,11 +469,9 @@ async def get_player_betting_stats(player_id: int, num_games: int) -> Dict[str, 
         # But we need to split the calculation for both roles
         
         # First, determine if we have enough games for both roles
-        # This would be a future enhancement - for now we'll use the same stats
         batting_stats = calculate_betting_stats(player_data.get('recent_stats', []), False)
         pitching_stats = calculate_betting_stats(player_data.get('recent_stats', []), True)
         
-        # Add both types of betting stats to the response
         player_data['betting_stats'] = {
             'hitting': batting_stats,
             'pitching': pitching_stats
@@ -392,7 +480,6 @@ async def get_player_betting_stats(player_id: int, num_games: int) -> Dict[str, 
         betting_stats = calculate_betting_stats(player_data.get('recent_stats', []), is_pitcher)
         player_data['betting_stats'] = betting_stats
     
-    # Add player type info to help front-end display appropriate stats
     player_data['player_type'] = 'TWP' if is_two_way else ('Pitcher' if is_pitcher else 'Batter')
     
     return player_data
