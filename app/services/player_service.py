@@ -126,12 +126,32 @@ def search_player_by_name(name: str) -> List[Dict[str, Union[str, int]]]:
 @lru_cache(maxsize=128)
 def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]:
     try:
+        print(f"[get_player_stats] Looking up player ID: {player_id}")
+        lookup_result = mlb_stats_client.lookup_player(str(player_id))
+        if not lookup_result:
+             return {"error": f"Could not look up player ID {player_id}"}
+        basic_player_info = lookup_result[0] 
+        current_team_id = basic_player_info.get('currentTeam', {}).get('id')
+        print(f"[get_player_stats] Current team ID from lookup: {current_team_id}")
+        current_team_name = TEAM_NAMES.get(current_team_id, 'Not Available')
+
         data = mlb_stats_client.get_player_info_with_stats(player_id, season)
         
         if not data.get('people'):
-            return {"error": "Player not found"}
+             print(f"[get_player_stats] Player {player_id} found via lookup, but no stats data returned for season {season}. Returning basic info.")
+             return {
+                 "player_info": {
+                     "id": basic_player_info.get('id'),
+                     "full_name": basic_player_info.get('fullName'),
+                     "current_team": current_team_name, # Use name from lookup
+                     "position": basic_player_info.get('primaryPosition', {}).get('abbreviation', 'N/A'),
+                 },
+                 "season": season,
+                 "season_stats": {},
+                 "career_stats": {}
+             }
             
-        player_info = data['people'][0]
+        player_info = data['people'][0] # Use this for stats primarily now
         position = player_info.get('primaryPosition', {}).get('abbreviation', 'N/A')
         is_pitcher = position == 'P'
         is_two_way = position == 'TWP'
@@ -142,15 +162,18 @@ def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]
         stats_data = player_info.get('stats', [])
         hitting_stats = {}
         pitching_stats = {}
-        
+
+        print(f"[get_player_stats] Raw stats_data for player {player_id}: {stats_data}") 
+
         for stat in stats_data:
-            if stat.get('group', {}).get('displayName') == 'hitting':
-                if stat.get('splits'):
-                    hitting_stats = stat['splits'][0]['stat']
-            elif stat.get('group', {}).get('displayName') == 'pitching':
-                if stat.get('splits'):
-                    pitching_stats = stat['splits'][0]['stat']
-        
+            group = stat.get('group', {}).get('displayName')
+            splits = stat.get('splits', [])
+            if splits: 
+                split_stat = splits[0].get('stat', {})
+                if group == 'hitting':
+                    hitting_stats = split_stat
+                elif group == 'pitching':
+                    pitching_stats = split_stat
 
         hitting_career_stats = {}
         if hitting_career:
@@ -171,9 +194,9 @@ def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]
         
         response_data = {
             "player_info": {
-                "id": player_info['id'],
-                "full_name": player_info['fullName'],
-                "current_team": TEAM_NAMES.get(player_info.get('currentTeam', {}).get('id'), 'Not Available'),
+                "id": player_info.get('id'), # Use stats response if available, fallback? maybe basic_info is better
+                "full_name": player_info.get('fullName'),
+                "current_team": current_team_name, # Use name from lookup result
                 "position": position,
                 "bat_side": player_info.get('batSide', {}).get('code', 'N/A'),
                 "throw_hand": player_info.get('pitchHand', {}).get('code', 'N/A'),
