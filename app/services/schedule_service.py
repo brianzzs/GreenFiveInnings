@@ -222,67 +222,118 @@ def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
 def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
     """Gets the upcoming schedule (today or tomorrow) for a team, including pitcher info and team records."""
     base_date = datetime.date.today()
-    date_format = "%Y-%m-%d" 
+    date_format = "%Y-%m-%d"
     formatted_today = base_date.strftime(date_format)
     team_param = team_id if team_id != 0 else None
+    games_with_pitcher_info = [] 
 
     try:
-        team_records = _get_team_records_from_standings() 
-        next_games_summary = mlb_stats_client.get_schedule(
-            start_date=formatted_today, 
-            end_date=formatted_today, 
+        team_records = _get_team_records_from_standings()
+
+        print(f"[get_next_game_schedule] Checking today ({formatted_today}) for team {team_id}")
+        todays_games = mlb_stats_client.get_schedule(
+            start_date=formatted_today,
+            end_date=formatted_today,
             team_id=team_param
         )
 
-        if not next_games_summary:
+        if todays_games:
+            print(f"[get_next_game_schedule] Processing {len(todays_games)} games from today...")
+            for game in todays_games:
+                try:
+                    game_id = game.get("game_id")
+                    home_id = game.get("home_id")
+                    away_id = game.get("away_id")
+                    if not game_id or not home_id or not away_id:
+                        continue
+
+                    game_status = game.get("status")
+                    # Skip games that are already finished
+                    if game_status in ["Final", "Game Over", "Completed Early"]:
+                        print(f"[get_next_game_schedule] Skipping finished game {game_id} from today.")
+                        continue
+
+                    # If game is not finished, process and add it
+                    away_record_str = team_records.get(away_id, "0-0")
+                    home_record_str = team_records.get(home_id, "0-0")
+                    pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
+                    game_time_utc_str = game.get("game_datetime")
+
+                    processed_game = {
+                        "game_id": game_id,
+                        "home_team_id": home_id,
+                        "home_team_name": game.get("home_name"),
+                        "home_team_record": home_record_str,
+                        "away_team_id": away_id,
+                        "away_team_name": game.get("away_name"),
+                        "away_team_record": away_record_str,
+                        "status": game_status,
+                        "game_datetime": game_time_utc_str,
+                        "venue": game.get("venue_name", "TBD"),
+                        **pitcher_info
+                    }
+                    games_with_pitcher_info.append(processed_game)
+
+
+                except Exception as inner_e:
+                    print(f"[get_next_game_schedule] Error processing game data (today): {game}. Error: {inner_e}")
+        else:
+             print(f"[get_next_game_schedule] No games found for team {team_id} today.")
+
+        if not games_with_pitcher_info:
+            print(f"[get_next_game_schedule] No upcoming games found today, checking tomorrow...")
             next_date = base_date + datetime.timedelta(days=1)
             formatted_tomorrow = next_date.strftime(date_format)
-            next_games_summary = mlb_stats_client.get_schedule(
-                start_date=formatted_tomorrow, 
-                end_date=formatted_tomorrow, 
+            tomorrows_games = mlb_stats_client.get_schedule(
+                start_date=formatted_tomorrow,
+                end_date=formatted_tomorrow,
                 team_id=team_param
             )
+            
+            if tomorrows_games:
+                print(f"[get_next_game_schedule] Processing {len(tomorrows_games)} games from tomorrow...")
+                for game in tomorrows_games:
+                    try:
+                        game_id = game.get("game_id")
+                        home_id = game.get("home_id")
+                        away_id = game.get("away_id")
+                        if not game_id or not home_id or not away_id:
+                            continue
 
-        if not next_games_summary:
-            return []
+                        game_status = game.get("status")
+                        if game_status in ["Final", "Game Over", "Completed Early"]:
+                            continue
+                        
+                        away_record_str = team_records.get(away_id, "0-0")
+                        home_record_str = team_records.get(home_id, "0-0")
+                        pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
+                        game_time_utc_str = game.get("game_datetime")
 
-        games_with_pitcher_info = []
-        for game in next_games_summary: 
-            try:
-                game_id = game.get("game_id")
-                home_id = game.get("home_id")
-                away_id = game.get("away_id")
-                if not game_id or not home_id or not away_id:
-                    continue
+                        processed_game = {
+                             "game_id": game_id,
+                             "home_team_id": home_id,
+                             "home_team_name": game.get("home_name"),
+                             "home_team_record": home_record_str,
+                             "away_team_id": away_id,
+                             "away_team_name": game.get("away_name"),
+                             "away_team_record": away_record_str,
+                             "status": game_status,
+                             "game_datetime": game_time_utc_str,
+                             "venue": game.get("venue_name", "TBD"),
+                             **pitcher_info
+                        }
+                        games_with_pitcher_info.append(processed_game)
+                        # Optional: break here if you only want the single next game.
+                        # break
 
-                game_status = game.get("status")
-                if game_status in ["Final", "Game Over", "Completed Early"]:
-                    continue
-                    
-                away_record_str = team_records.get(away_id, "0-0") # Default if lookup fails
-                home_record_str = team_records.get(home_id, "0-0") # Default if lookup fails
+                    except Exception as inner_e:
+                        print(f"[get_next_game_schedule] Error processing game data (tomorrow): {game}. Error: {inner_e}")
+            else:
+                 print(f"[get_next_game_schedule] No games found for team {team_id} tomorrow either.")
 
-                pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
-                game_time_utc_str = game.get("game_datetime")
-
-                processed_game = {
-                    "game_id": game_id,
-                    "home_team_id": home_id,
-                    "home_team_name": game.get("home_name"),
-                    "home_team_record": home_record_str, 
-                    "away_team_id": away_id,
-                    "away_team_name": game.get("away_name"),
-                    "away_team_record": away_record_str, 
-                    "status": game_status,
-                    "game_datetime": game_time_utc_str, 
-                    "venue": game.get("venue_name", "TBD"),
-                    **pitcher_info 
-                }
-                games_with_pitcher_info.append(processed_game)
-
-            except Exception as inner_e:
-                 print(f"[get_next_game_schedule] Error processing game data: {game}. Error: {inner_e}")
-
+        if not games_with_pitcher_info:
+             print(f"[get_next_game_schedule] Final result: No upcoming games found for team {team_id} today or tomorrow.")
+             
         return games_with_pitcher_info
 
     except Exception as e:
