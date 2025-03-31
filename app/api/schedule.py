@@ -23,8 +23,12 @@ def get_next_schedule_route(team_id):
     """Gets the upcoming schedule (today or tomorrow) for a team."""
     return jsonify(schedule_service.get_next_game_schedule_for_team(team_id))
 
-@schedule_bp.route('/team-stats/<int:team_id>/<int:num_days>', methods=['GET'])
-async def get_stats_batch_route(team_id: int, num_days: int):
-    """Gets a summary of team stats (NRFI, F5, Win%) over N days."""
-    stats_summary = await game_service.get_team_stats_summary(team_id, num_days)
+@schedule_bp.route('/team-stats/<int:team_id>/<int:num_games>', methods=['GET'])
+async def get_stats_batch_route(team_id: int, num_games: int):
+    """Gets a summary of team stats (NRFI, F5, Win%) over the last N completed games."""
+    stats_summary = await game_service.get_team_stats_summary(team_id, num_games)
+
+    if isinstance(stats_summary, dict) and stats_summary.get("error"):
+        return jsonify(stats_summary), 500
+        
     return jsonify(stats_summary) 

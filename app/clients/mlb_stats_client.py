@@ -67,10 +67,22 @@ def get_player_stat_data(player_id: int, group: str, type: str) -> Dict[str, Any
         print(f"Error fetching player stat data for player {player_id}, group {group}, type {type}: {e}")
         raise
 
+def get_standings(league_id: str = "103,104", date: Optional[str] = None) -> Dict:
+    """Fetches standings data using statsapi.standings_data."""
+    params = {"leagueId": league_id}
+    if date:
+        params["date"] = date
+    try:
+        return statsapi.standings_data(**params)
+    except Exception as e:
+        print(f"Error fetching standings data with params {params}: {e}")
+        raise
+
 async def get_schedule_async(
     start_date: str, end_date: Optional[str] = None, team_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     """Fetches schedule asynchronously using asyncio.to_thread."""
+    # Filtering is currently done in schedule_service.py
     return await asyncio.to_thread(get_schedule, start_date, end_date, team_id)
 
 async def get_game_data_async(game_pk: int) -> Dict[str, Any]:
