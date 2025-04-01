@@ -30,11 +30,9 @@ def create_app(config_name='default'):
     )
     
     CORS(app, resources={r"/*": {"origins": [
-        "https://fiveinnings-api-f6d1667b55fe.herokuapp.com/", 
-        "http://localhost:3000",            
+        "https://fiveinnings.com",
+        "http://localhost:3000",
         "http://localhost:5173",
-        "https://fiveinnings.com/"
-
     ]}})
     
     @app.before_request
