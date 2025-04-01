@@ -113,15 +113,25 @@ def get_today_schedule() -> List[Dict]:
                 game_id = game.get("game_id")
                 home_id = game.get("home_id")
                 away_id = game.get("away_id")
+                game_time_utc_str = game.get("game_datetime")
 
                 if not game_id or not home_id or not away_id or game_status in ["Final", "Game Over", "Completed Early"]:
                     continue
 
-                away_record_str = team_records.get(away_id, "0-0") # Default if lookup fails
-                home_record_str = team_records.get(home_id, "0-0") # Default if lookup fails
+                try:
+                    game_time_utc = datetime.datetime.strptime(game_time_utc_str, "%Y-%m-%dT%H:%M:%SZ")
+                    game_time_utc = pytz.UTC.localize(game_time_utc)
+                    game_time_local = game_time_utc.astimezone(pytz.timezone('America/New_York'))
+                    if game_time_local.date() != today_date:
+                        continue
+                except Exception as e:
+                    print(f"[get_today_schedule] Error converting game time: {e}")
+                    continue
+
+                away_record_str = team_records.get(away_id, "0-0") 
+                home_record_str = team_records.get(home_id, "0-0") 
 
                 pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
-                game_time_utc_str = game.get("game_datetime") 
 
                 processed_game = {
                     "game_id": game_id,
@@ -144,7 +154,7 @@ def get_today_schedule() -> List[Dict]:
         return processed_games
     except Exception as e:
         print(f"[get_today_schedule] Error fetching or processing today's schedule: {e}")
-        return [] 
+        return []
 
 @lru_cache(maxsize=128)
 def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
