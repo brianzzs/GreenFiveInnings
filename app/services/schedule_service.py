@@ -250,7 +250,6 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
         )
 
         if todays_games:
-            print(f"[get_next_game_schedule] Processing {len(todays_games)} games from today...")
             for game in todays_games:
                 try:
                     game_id = game.get("game_id")
@@ -262,10 +261,8 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
                     game_status = game.get("status")
                     # Skip games that are already finished
                     if game_status in ["Final", "Game Over", "Completed Early"]:
-                        print(f"[get_next_game_schedule] Skipping finished game {game_id} from today.")
                         continue
 
-                    # If game is not finished, process and add it
                     away_record_str = team_records.get(away_id, "0-0")
                     home_record_str = team_records.get(home_id, "0-0")
                     pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
@@ -303,7 +300,6 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
             )
             
             if tomorrows_games:
-                print(f"[get_next_game_schedule] Processing {len(tomorrows_games)} games from tomorrow...")
                 for game in tomorrows_games:
                     try:
                         game_id = game.get("game_id")

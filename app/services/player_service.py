@@ -375,6 +375,39 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                                 "opponent_team": TEAM_NAMES.get(opponent_team['team']['id'], 'Unknown')
                             })
                             seen_dates.add(date_only) 
+                    else: # Handle batters
+                        player_api_data = players[player_key]
+                        player_game_stats = player_api_data.get('stats', {}).get('batting', {})
+
+                        # Include game if batter had at least one plate appearance or at bat
+                        if player_game_stats.get('plateAppearances') or player_game_stats.get('atBats'):
+                            opponent_team = away_team if home_team['team']['id'] == team_id else home_team
+                            is_home_team = home_team['team']['id'] == team_id
+                            
+                            # Safely get opponent pitcher
+                            try:
+                                opponent_pitcher = game_data['gameData']['probablePitchers']['away' if is_home_team else 'home']['fullName']
+                            except KeyError:
+                                opponent_pitcher = "Unknown"
+
+                            print(f"[DEBUG] Adding BATTER game from {date_only} (ID: {game_id})")
+                            player_stats.append({
+                                "game_id": game_id,
+                                "game_date": game_date_from_schedule,
+                                "hits": player_game_stats.get('hits', 0),
+                                "total_bases": player_game_stats.get('totalBases', 0),
+                                "runs": player_game_stats.get('runs', 0),
+                                "rbis": player_game_stats.get('rbi', 0),
+                                "home_runs": player_game_stats.get('homeRuns', 0),
+                                "walks": player_game_stats.get('baseOnBalls', 0),
+                                "at_bats": player_game_stats.get('atBats', 0),
+                                "avg": round((player_game_stats.get("hits", 0) / ab) if (ab := player_game_stats.get("atBats")) and ab > 0 else 0.0, 3),
+                                "strikeouts": player_game_stats.get('strikeOuts', 0),
+                                "opponent_team": TEAM_NAMES.get(opponent_team['team']['id'], 'Unknown'),
+                                "opponent_pitcher": opponent_pitcher
+                            })
+                            seen_dates.add(date_only)
+                            processed_in_this_loop += 1
             
             if processed_in_this_loop == 0 and len(player_stats) < num_games:
                  days_to_search *= 2
