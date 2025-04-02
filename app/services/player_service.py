@@ -278,39 +278,70 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
         
         end_date = datetime.date.today()
         player_stats = []
-        days_to_search = 30  
-        seen_dates = set()  # Track dates we've already processed
+        days_to_search = 60  
+        seen_dates = set() 
+        all_fetched_games = [] 
         
         while len(player_stats) < num_games and days_to_search <= 180:
             start_date = end_date - datetime.timedelta(days=days_to_search)
             start_date_str = start_date.strftime("%Y-%m-%d")
             end_date_str = end_date.strftime("%Y-%m-%d")
             
-            recent_games = await mlb_stats_client.get_schedule_async(
-                team_id=team_id,
-                start_date=start_date_str,
-                end_date=end_date_str
-            )
             
-            # Filter completed games and sort by date in descending order
-            recent_game_ids = [game['game_id'] for game in sorted(
-                [game for game in recent_games if game['status'] == 'Final'],
+            try:
+                recent_games = await mlb_stats_client.get_schedule_async(
+                    team_id=team_id,
+                    start_date=start_date_str,
+                    end_date=end_date_str
+                )
+                all_fetched_games.extend(recent_games)
+            except Exception as e:
+                days_to_search *= 2
+                continue
+
+            
+            unique_games = {game['game_id']: game for game in all_fetched_games}.values()
+            completed_games = [game for game in unique_games 
+                               if game.get('status') in ['Final', 'Game Over', 'Completed Early'] 
+                               and game.get('game_type') in ['R', 'S']]
+            
+            completed_games_sorted = sorted(
+                completed_games,
                 key=lambda x: x['game_datetime'],
                 reverse=True
-            )]
-            
-            tasks = [mlb_stats_client.get_game_data_async(game_id) for game_id in recent_game_ids]
-            game_data_list = await asyncio.gather(*tasks)
-            
-            game_data_list.sort(
-                key=lambda x: x['gameData']['datetime']['dateTime'],
-                reverse=True
             )
             
-            for game_data in game_data_list:
+            recent_game_ids = [game['game_id'] for game in completed_games_sorted]
+            
+            
+            game_ids_to_fetch = [gid for gid in recent_game_ids if gid not in [ps['game_id'] for ps in player_stats]]
+            if not game_ids_to_fetch:
+                days_to_search *= 2 
+                continue
+
+            tasks = [mlb_stats_client.get_game_data_async(game_id) for game_id in game_ids_to_fetch]
+            game_data_list = await asyncio.gather(*tasks)
+            
+            valid_game_data_list = [gd for gd in game_data_list if gd and gd.get('gameData')]
+
+            game_data_map = {gd['gameData']['game']['pk']: gd for gd in valid_game_data_list}
+            
+            processed_in_this_loop = 0
+            for game_summary in completed_games_sorted:
                 if len(player_stats) >= num_games:
                     break
-                    
+                
+                game_id = game_summary['game_id']
+                game_date_from_schedule = game_summary['game_datetime']
+                date_only = game_date_from_schedule.split('T')[0]
+
+                if date_only in seen_dates:
+                    continue 
+                
+                game_data = game_data_map.get(game_id)
+                if not game_data:
+                    continue
+
                 live_data = game_data.get('liveData', {})
                 boxscore = live_data.get('boxscore', {})
                 teams = boxscore.get('teams', {})
@@ -320,24 +351,22 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                 players.update(away_team.get('players', {}))
                 
                 player_key = f'ID{player_id}'
+                
                 if player_key in players:
-                    game_date = game_data['gameData']['datetime']['dateTime']
-                    date_only = game_date.split('T')[0]
-                    
-                    # Skip if we've already seen this date
-                    if date_only in seen_dates:
-                        continue
-                        
-                    seen_dates.add(date_only)
-                    
                     if is_pitcher:
-                        player_game_stats = players[player_key].get('stats', {}).get('pitching', {})
-                        if player_game_stats.get('inningsPitched'):  # Only include games where they pitched
+                        player_api_data = players[player_key]
+                        player_game_stats = (
+                            player_api_data.get('stats', {}).get('pitching', {}) or
+                            player_api_data.get('stats', {}).get('regularSeason', {}).get('pitching', {}) or
+                            player_api_data.get('stats', {}).get('stats', {}).get('pitching', {})
+                        )
+                        
+                        if any(key in player_game_stats for key in ['inningsPitched', 'strikeOuts', 'hits', 'runs']):
                             opponent_team = away_team if home_team['team']['id'] == team_id else home_team
                             player_stats.append({
-                                "game_id": game_data['gameData']['game']['pk'],
-                                "game_date": game_date,
-                                "innings_pitched": player_game_stats.get('inningsPitched', 0),
+                                "game_id": game_id,
+                                "game_date": game_date_from_schedule, # Use date from schedule for sorting consistency
+                                "innings_pitched": player_game_stats.get('inningsPitched', '0.0'), # Default to string '0.0'
                                 "hits_allowed": player_game_stats.get('hits', 0),
                                 "home_runs_allowed": player_game_stats.get('homeRuns', 0),
                                 "walks_allowed": player_game_stats.get('baseOnBalls', 0),
@@ -345,38 +374,17 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                                 "runs": player_game_stats.get('runs', 0),
                                 "opponent_team": TEAM_NAMES.get(opponent_team['team']['id'], 'Unknown')
                             })
-                    else:
-                        # For batters, check if they had any at-bats or plate appearances
-                        player_game_stats = players[player_key].get('stats', {}).get('batting', {})
-                        if player_game_stats.get('atBats') or player_game_stats.get('plateAppearances'):
-                            opponent_team = away_team if home_team['team']['id'] == team_id else home_team
-                            is_home_team = home_team['team']['id'] == team_id
-
-                            try:
-                                opponent_pitcher = game_data['gameData']['probablePitchers']['away' if is_home_team else 'home']['fullName']
-                            except KeyError:
-                                opponent_pitcher = "Unknown"
-
-                            player_stats.append({
-                                "game_id": game_data['gameData']['game']['pk'],
-                                "game_date": game_date,
-                                "hits": player_game_stats.get('hits', 0),
-                                "runs": player_game_stats.get('runs', 0),
-                                "rbis": player_game_stats.get('rbi', 0),
-                                "home_runs": player_game_stats.get('homeRuns', 0),
-                                "walks": player_game_stats.get('baseOnBalls', 0),
-                                "at_bats": player_game_stats.get('atBats', 0),
-                                "avg": round((player_game_stats.get("hits") / player_game_stats.get("atBats")) if player_game_stats.get("atBats") else 0, 3),
-                                "strikeouts": player_game_stats.get('strikeOuts', 0),
-                                "opponent_team": TEAM_NAMES.get(opponent_team['team']['id'], 'Unknown'),
-                                "opponent_pitcher": opponent_pitcher
-                            })
+                            seen_dates.add(date_only) 
             
-            # Increase search window if we haven't found enough games
-            days_to_search *= 2
+            if processed_in_this_loop == 0 and len(player_stats) < num_games:
+                 days_to_search *= 2
+            elif len(player_stats) >= num_games:
+                 break 
         
         player_stats.sort(key=lambda x: x['game_date'], reverse=True)
-        player_stats = player_stats[:num_games]
+        player_stats = player_stats[:num_games] 
+        
+
         
         return {
             "player_id": player_id,
@@ -386,6 +394,8 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
         }
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Error fetching recent player stats: {e}")
         return {"error": f"Error fetching recent player stats: {str(e)}"}
 

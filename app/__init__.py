@@ -29,11 +29,22 @@ def create_app(config_name='default'):
         storage_uri="memory://",
     )
     
-    CORS(app, resources={r"/*": {"origins": [
-        "https://fiveinnings.com",
-        "http://localhost:3000",
-        "http://localhost:5173",
-    ]}})
+    CORS(app, resources={
+        r"/*": {
+            "origins": [
+                "https://fiveinnings.com",
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:3000"
+            ],
+            "methods": ["GET", "POST", "OPTIONS"],
+            "allow_headers": ["Content-Type", "X-API-Key"],
+            "supports_credentials": True,
+            "expose_headers": ["Content-Type", "X-API-Key"],
+            "max_age": 3600
+        }
+    })
     
     @app.before_request
     def authenticate():
@@ -56,6 +67,11 @@ def create_app(config_name='default'):
     
     @app.after_request
     def add_security_headers(response):
+        response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-API-Key'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['X-XSS-Protection'] = '1; mode=block'

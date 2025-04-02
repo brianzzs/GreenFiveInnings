@@ -67,7 +67,7 @@ async def fetch_and_cache_game_ids_span(team_id: int, num_days: int = None) -> L
     return [game["game_id"] for game in all_games]
 
 
-@lru_cache(maxsize=2) 
+@lru_cache(maxsize=1) 
 def _get_team_records_from_standings() -> Dict[int, str]:
     """Fetches current standings and returns a dict mapping team ID to 'W-L' record."""
     records = {}
@@ -76,7 +76,7 @@ def _get_team_records_from_standings() -> Dict[int, str]:
         
         for division_id, division_data in standings_data.items():
             if isinstance(division_data, dict) and 'teams' in division_data:
-                 for team_standings in division_data['teams']:
+                for team_standings in division_data['teams']:
                     team_id = team_standings.get('team_id')
                     wins = team_standings.get('w')
                     losses = team_standings.get('l')
@@ -84,10 +84,12 @@ def _get_team_records_from_standings() -> Dict[int, str]:
                         records[team_id] = f"{wins}-{losses}"
     except Exception as e:
         print(f"Error parsing standings data: {e}")
+        _get_team_records_from_standings.cache_clear()
         
     if not records:
-         print("Warning: Could not retrieve or parse team records from standings.")
-         
+        print("Warning: Could not retrieve or parse team records from standings.")
+        _get_team_records_from_standings.cache_clear()
+        
     return records
 
 
