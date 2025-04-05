@@ -93,12 +93,11 @@ def _get_team_records_from_standings() -> Dict[int, str]:
     return records
 
 
-@lru_cache(maxsize=128)
 def get_today_schedule() -> List[Dict]:
     """Gets the schedule for today, including pitcher info and team records."""
     processed_games = []
     try:
-        team_records = _get_team_records_from_standings() # Get records dict
+        team_records = _get_team_records_from_standings()
         today_date = datetime.date.today()
         today_date_str = today_date.strftime("%Y-%m-%d")
         raw_games = mlb_stats_client.get_schedule(

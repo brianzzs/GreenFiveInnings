@@ -7,6 +7,7 @@ schedule_bp = Blueprint('schedule', __name__)
 
 
 @schedule_bp.route('/today_schedule', methods=['GET'])
+@lru_cache(maxsize=128)
 def today_schedule_route():
     """Gets the schedule for today, including pitcher info."""
     return jsonify(schedule_service.get_today_schedule())
