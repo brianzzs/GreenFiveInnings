@@ -4,34 +4,7 @@ from typing import Dict, Any, List, Optional
 from app.services import game_service, player_service, schedule_service
 from app.clients import mlb_stats_client
 from app.utils.calculations import TEAM_NAMES
-
-def _extract_lineup(boxscore_data: Dict, team_key: str) -> Optional[List[Dict]]:
-    """Helper function to extract and format batting order from boxscore data."""
-    try:
-        team_data = boxscore_data.get('teams', {}).get(team_key, {})
-        player_info = team_data.get('players', {})
-        batting_order_ids = team_data.get('battingOrder', [])
-        
-        if not batting_order_ids:
-            return None 
-
-        lineup = []
-        for player_id in batting_order_ids:
-            player_key = f'ID{player_id}'
-            player_details = player_info.get(player_key, {})
-            position = player_details.get('position', {}).get('abbreviation', 'N/A')
-            batting_avg = player_details.get('seasonStats', {}).get('batting', {}).get('avg', 'N/A')
-            if position != 'N/A':
-                 lineup.append({
-                    "id": player_id,
-                    "name": player_details.get('person', {}).get('fullName', 'Unknown'),
-                    "position": position,
-                    "avg": batting_avg,
-                 })
-        return lineup if lineup else None
-    except Exception as e:
-        print(f"Error extracting {team_key} lineup: {e}")
-        return None
+from app.utils import helpers
 
 async def get_game_comparison(game_id: int, lookback_games: int = 10) -> Dict[str, Any]:
     """
@@ -63,13 +36,33 @@ async def get_game_comparison(game_id: int, lookback_games: int = 10) -> Dict[st
         home_pitcher_id = pitcher_details.get('homePitcherID')
 
 
-        away_lineup = _extract_lineup(boxscore_data, 'away') 
-        home_lineup = _extract_lineup(boxscore_data, 'home') 
+        away_lineup = helpers.extract_lineup(boxscore_data, 'away') 
+        home_lineup = helpers.extract_lineup(boxscore_data, 'home')
+        
+        away_lineup_status = "Confirmed"
+        home_lineup_status = "Confirmed"
 
         if away_lineup is None:
-            away_lineup = []
+            print(f"[Comparison] Away lineup missing for game {game_id}. Fetching last lineup for team {away_team_id}...")
+            away_lineup = await schedule_service.get_last_game_lineup(away_team_id)
+            if away_lineup is not None:
+                away_lineup_status = "Expected"
+            else:
+                print(f"[Comparison] Could not fetch last lineup for away team {away_team_id}.")
+                away_lineup = []
+                away_lineup_status = "Unavailable" 
+
         if home_lineup is None:
-            home_lineup = []
+            print(f"[Comparison] Home lineup missing for game {game_id}. Fetching last lineup for team {home_team_id}...")
+            home_lineup = await schedule_service.get_last_game_lineup(home_team_id)
+            if home_lineup is not None:
+                home_lineup_status = "Expected"
+            else:
+                print(f"[Comparison] Could not fetch last lineup for home team {home_team_id}.")
+                home_lineup = []
+                home_lineup_status = "Unavailable" 
+
+
 
         tasks_to_run = []
 
@@ -180,13 +173,15 @@ async def get_game_comparison(game_id: int, lookback_games: int = 10) -> Dict[st
                     "id": away_team_id,
                     "name": TEAM_NAMES.get(away_team_id, away_team_info.get('name', 'TBD')),
                     "record": away_record_str,
-                    "lineup": away_lineup_with_h2h
+                    "lineup": away_lineup_with_h2h,
+                    "lineup_status": away_lineup_status
                 },
                 "home_team": {
                     "id": home_team_id,
                     "name": TEAM_NAMES.get(home_team_id, home_team_info.get('name', 'TBD')),
                     "record": home_record_str,
-                    "lineup": home_lineup_with_h2h
+                    "lineup": home_lineup_with_h2h,
+                    "lineup_status": home_lineup_status
                 },
                 "away_pitcher": {
                     "id": away_pitcher_id,

@@ -1,6 +1,6 @@
 import asyncio
 import datetime
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from app.clients import mlb_stats_client
 from cache import SCHEDULE_CACHE 
 import pytz
@@ -14,7 +14,6 @@ from app.utils import helpers
 async def fetch_schedule(date, team_id):
     """Internal helper to fetch schedule for a specific date range."""
 
-    # This uses the async wrapper from the client
     return await mlb_stats_client.get_schedule_async(
         start_date=date["start_date"],
         end_date=date["end_date"],
@@ -410,4 +409,49 @@ async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[
         print(f"[fetch_last_n_completed_game_ids] No completed R or S games found for team {team_id} since {year_start_date}.")
 
     return [game['game_id'] for game in completed_games[:num_games]]
+
+
+async def get_last_game_lineup(team_id: int) -> Optional[List[Dict]]:
+    """Fetches the lineup from the most recently completed game for a team."""
+    try:
+        last_game_id_list = await fetch_last_n_completed_game_ids(team_id, 1)
+        if not last_game_id_list:
+            print(f"[get_last_game_lineup] No recent completed games found for team {team_id}.")
+            return None
+        
+        last_game_id = last_game_id_list[0]
+        print(f"[get_last_game_lineup] Found last game ID {last_game_id} for team {team_id}. Fetching data...")
+        
+        raw_game_data = await mlb_stats_client.get_game_data_async(last_game_id)
+        if not raw_game_data or 'liveData' not in raw_game_data or 'boxscore' not in raw_game_data['liveData']:
+            print(f"[get_last_game_lineup] Missing liveData/boxscore for game {last_game_id}.")
+            return None
+            
+        game_data = raw_game_data.get('gameData', {})
+        teams_info = game_data.get('teams', {})
+        team_key = None
+        if teams_info.get('away', {}).get('id') == team_id:
+            team_key = 'away'
+        elif teams_info.get('home', {}).get('id') == team_id:
+            team_key = 'home'
+            
+        if not team_key:
+            print(f"[get_last_game_lineup] Could not determine home/away status for team {team_id} in game {last_game_id}.")
+            return None
+
+        boxscore_data = raw_game_data['liveData']['boxscore']
+        last_lineup = helpers.extract_lineup(boxscore_data, team_key)
+        
+        if last_lineup:
+            print(f"[get_last_game_lineup] Successfully extracted lineup for team {team_id} from game {last_game_id}.")
+        else:
+            print(f"[get_last_game_lineup] Failed to extract lineup for team {team_id} from game {last_game_id}.")
+            
+        return last_lineup
+
+    except Exception as e:
+        print(f"[get_last_game_lineup] Error fetching last lineup for team {team_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
