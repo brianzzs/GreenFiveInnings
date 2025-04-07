@@ -66,6 +66,11 @@ async def get_game_comparison(game_id: int, lookback_games: int = 10) -> Dict[st
         away_lineup = _extract_lineup(boxscore_data, 'away') 
         home_lineup = _extract_lineup(boxscore_data, 'home') 
 
+        if away_lineup is None:
+            away_lineup = []
+        if home_lineup is None:
+            home_lineup = []
+
         tasks_to_run = []
 
         tasks_to_run.append(game_service.get_team_stats_summary(away_team_id, lookback_games))
