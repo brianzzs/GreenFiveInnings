@@ -83,44 +83,54 @@ def get_processed_game_data(game_id: int) -> Dict:
 
 
 
-async def get_team_stats_summary(team_id: int, num_games: int) -> Dict:
-    """Fetches game data for the last N completed games and calculates relevant stats."""
+async def get_team_stats_summary(team_id: int, num_games: int, include_details: bool = False) -> Dict:
+    """Fetches game data for the last N completed games and calculates relevant stats.
+    
+    Args:
+        team_id: The ID of the team.
+        num_games: The number of recent games to analyze.
+        include_details: If True, includes a detailed log of each game analyzed in the 'results' key. Defaults to False.
+    """
     try:
         game_ids = await schedule_service.fetch_last_n_completed_game_ids(team_id, num_games)
 
         if not game_ids:
             print(f"[get_team_stats_summary] No completed games found for team {team_id} in the searched range.")
-            return {
+            return_data = {
                 "games_analyzed": 0,
-                "nrfi": 0.0, # Team NRFI
-                "game_nrfi_percentage": 0.0, # Game NRFI
+                "nrfi": 0.0, 
+                "game_nrfi_percentage": 0.0,
                 "win_percentage_f5": 0.0,
                 "over1_5F5": 0.0,
                 "over2_5F5": 0.0,
-                "results": []
             }
+            if include_details:
+                return_data["results"] = []
+            return return_data
+
 
         game_details = await fetch_game_details_batch(game_ids)
         valid_game_details = [gd for gd in game_details if gd and gd.get("gameData") and gd.get("liveData")]
 
         if not valid_game_details:
              print(f"[get_team_stats_summary] Failed to fetch details for game IDs: {game_ids}")
-             # Return defaults if no valid details fetched
-             return {
+             return_data = {
                 "games_analyzed": 0,
                 "nrfi": 0.0,
                 "game_nrfi_percentage": 0.0,
                 "win_percentage_f5": 0.0,
                 "over1_5F5": 0.0,
                 "over2_5F5": 0.0,
-                "results": []
-            }
+             }
+             if include_details:
+                 return_data["results"] = []
+             return return_data
 
         game_nrfi_list = [] 
         team_nrfi_list = [] 
         team_runs_f5_list = []
         moneyline_results_f5_for_calc = []
-        detailed_game_results = []
+        detailed_game_results = [] if include_details else None 
         games_processed_count = 0
 
         for game in valid_game_details:
@@ -167,7 +177,7 @@ async def get_team_stats_summary(team_id: int, num_games: int) -> Dict:
                 print(f"[get_team_stats_summary] Warning: Missing first inning runs data for game {game_pk}")
 
 
-            f5_innings = innings[:min(len(innings), 5)] # Ensure we don't index out of bounds
+            f5_innings = innings[:min(len(innings), 5)] 
             team_runs_f5 = 0
             runs_found_f5 = False
             for inning_num, inning in enumerate(f5_innings):
@@ -208,34 +218,35 @@ async def get_team_stats_summary(team_id: int, num_games: int) -> Dict:
             else:
                 print(f"[get_team_stats_summary] Warning: Incomplete F5 runs data for score comparison in game {game_pk}")
 
-            detailed_game_results.append({
-                "game_date": datetime_data.get("originalDate", "TBD"),
-                "game_pk": game_pk,
-                "away_team": {
-                    "id": away_team_data.get("id"),
-                    "name": TEAM_NAMES.get(away_team_data.get("id"), "TBD"),
-                    "runs": [r if r is not None else 'N/A' for r in away_runs_f5_list], # F5 runs per inning
-                    "total_runs": away_total_runs_f5, # F5 total
-                    "full_game_runs": full_away_runs, # Full game score
-                    "probable_pitcher": { # Add pitcher info
-                        "name": away_pitcher.get("fullName", "TBD"),
-                        "id": away_pitcher.get("id", "TBD"),
-                        "hand": away_pitcher_hand, 
+            if include_details:
+                detailed_game_results.append({
+                    "game_date": datetime_data.get("originalDate", "TBD"),
+                    "game_pk": game_pk,
+                    "away_team": {
+                        "id": away_team_data.get("id"),
+                        "name": TEAM_NAMES.get(away_team_data.get("id"), "TBD"),
+                        "runs": [r if r is not None else 'N/A' for r in away_runs_f5_list], # F5 runs per inning
+                        "total_runs": away_total_runs_f5, 
+                        "full_game_runs": full_away_runs, 
+                        "probable_pitcher": { 
+                            "name": away_pitcher.get("fullName", "TBD"),
+                            "id": away_pitcher.get("id", "TBD"),
+                            "hand": away_pitcher_hand, 
+                        },
                     },
-                },
-                "home_team": {
-                    "id": home_team_data.get("id"),
-                    "name": TEAM_NAMES.get(home_team_data.get("id"), "TBD"),
-                    "runs": [r if r is not None else 'N/A' for r in home_runs_f5_list],
-                    "total_runs": home_total_runs_f5,
-                    "full_game_runs": full_home_runs,
-                    "probable_pitcher": { # Add pitcher info
-                        "name": home_pitcher.get("fullName", "TBD"),
-                        "id": home_pitcher.get("id", "TBD"),
-                        "hand": home_pitcher_hand, 
+                    "home_team": {
+                        "id": home_team_data.get("id"),
+                        "name": TEAM_NAMES.get(home_team_data.get("id"), "TBD"),
+                        "runs": [r if r is not None else 'N/A' for r in home_runs_f5_list],
+                        "total_runs": home_total_runs_f5,
+                        "full_game_runs": full_home_runs,
+                        "probable_pitcher": { 
+                            "name": home_pitcher.get("fullName", "TBD"),
+                            "id": home_pitcher.get("id", "TBD"),
+                            "hand": home_pitcher_hand, 
+                        },
                     },
-                },
-            })
+                })
 
         game_nrfi_percentage_calc = (
             sum(1 for did_happen in game_nrfi_list if did_happen) 
@@ -264,23 +275,29 @@ async def get_team_stats_summary(team_id: int, num_games: int) -> Dict:
 
         win_percentage_f5_calc = calculate_win_percentage(moneyline_results_f5_for_calc, team_id)
 
-        detailed_game_results.sort(key=lambda x: x.get('game_date', '0000-00-00'), reverse=True)
+        if include_details:
+            detailed_game_results.sort(key=lambda x: x.get('game_date', '0000-00-00'), reverse=True)
 
-        return {
+        return_data = {
             "games_analyzed": games_processed_count, 
             "nrfi": round(team_nrfi_percentage_calc, 2),
             "game_nrfi_percentage": round(game_nrfi_percentage_calc, 2),
             "win_percentage_f5": round(win_percentage_f5_calc, 2),
             "over1_5F5": round(over_1_5_calc, 2),
             "over2_5F5": round(over_2_5_calc, 2),
-            "results": detailed_game_results
         }
+        
+        if include_details:
+            return_data["results"] = detailed_game_results
+            
+        return return_data
 
     except Exception as e:
         print(f"Error calculating team stats summary for team {team_id} over last {num_games} games: {e}")
         import traceback
         traceback.print_exc()
-        return {
+        # Return structure consistent, results empty if not requested or error
+        return_data = {
             "games_analyzed": 0,
             "error": f"Error calculating stats: {str(e)}",
             "nrfi": 0.0,
@@ -288,5 +305,7 @@ async def get_team_stats_summary(team_id: int, num_games: int) -> Dict:
             "win_percentage_f5": 0.0,
             "over1_5F5": 0.0,
             "over2_5F5": 0.0,
-            "results": []
         } 
+        if include_details:
+            return_data["results"] = []
+        return return_data 

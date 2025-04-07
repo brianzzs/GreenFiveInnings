@@ -27,7 +27,7 @@ def get_next_schedule_route(team_id):
 @schedule_bp.route('/team-stats/<int:team_id>/<int:num_games>', methods=['GET'])
 async def get_stats_batch_route(team_id: int, num_games: int):
     """Gets a summary of team stats (NRFI, F5, Win%) over the last N completed games."""
-    stats_summary = await game_service.get_team_stats_summary(team_id, num_games)
+    stats_summary = await game_service.get_team_stats_summary(team_id, num_games, include_details=True)
 
     if isinstance(stats_summary, dict) and stats_summary.get("error"):
         return jsonify(stats_summary), 500

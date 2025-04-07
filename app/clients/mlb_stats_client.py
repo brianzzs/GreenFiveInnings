@@ -32,6 +32,78 @@ def lookup_player(query: str) -> List[Dict[str, Any]]:
         print(f"Error looking up player with query '{query}': {e}")
         raise
 
+def get_player_h2h_stats(batter_id: int, pitcher_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Fetches and extracts relevant *career total* H2H stats for a batter vs a pitcher.
+
+    Args:
+        batter_id: The MLBAM ID of the batter.
+        pitcher_id: The MLBAM ID of the pitcher.
+
+    Returns:
+        A dictionary with relevant H2H stats (PA, AB, H, HR, RBI, BB, SO, AVG, OBP, SLG, OPS)
+        or None if no H2H data is found or an error occurs.
+        Returns a dict like {"PA": 0} if the API call succeeds but there's no history.
+    """
+    url = f"https://statsapi.mlb.com/api/v1/people/{batter_id}/stats?stats=vsTeamTotal&group=hitting&opposingPlayerId={pitcher_id}&language=en"
+
+    try:
+        response = requests.get(url, timeout=20)
+        response.raise_for_status()
+        data = response.json()
+
+        stats_list = data.get("stats", [])
+        if not stats_list:
+            return {"PA": 0} 
+
+        total_stats_data = None
+        for stat_entry in stats_list:
+            stat_type = stat_entry.get("type", {})
+            if stat_type and stat_type.get("displayName") == "vsTeamTotal":
+                total_stats_data = stat_entry
+                break
+
+        if not total_stats_data:
+            return {"PA": 0} 
+
+        splits = total_stats_data.get("splits", [])
+        if not splits:
+            return {"PA": 0}
+
+        raw_stats = splits[0].get("stat", {})
+        if not raw_stats or raw_stats.get("plateAppearances", 0) == 0:
+             return {"PA": 0}
+        relevant_stats = {
+            "PA": raw_stats.get("plateAppearances"),
+            "AB": raw_stats.get("atBats"),
+            "H": raw_stats.get("hits"),
+            "2B": raw_stats.get("doubles"),
+            "3B": raw_stats.get("triples"),
+            "HR": raw_stats.get("homeRuns"),
+            "RBI": raw_stats.get("rbi"),
+            "BB": raw_stats.get("baseOnBalls"),
+            "SO": raw_stats.get("strikeOuts"),
+            "AVG": raw_stats.get("avg"),
+            "OBP": raw_stats.get("obp"),
+            "SLG": raw_stats.get("slg"),
+            "OPS": raw_stats.get("ops"),
+        }
+        return relevant_stats
+
+    except requests.exceptions.Timeout:
+        print(f"Timeout fetching H2H stats for batter {batter_id} vs pitcher {pitcher_id}")
+        return None 
+    except requests.exceptions.RequestException as e:
+        status_code = e.response.status_code if e.response is not None else "N/A"
+        print(f"Error fetching H2H stats for batter {batter_id} vs pitcher {pitcher_id} (Status: {status_code}): {e}")
+        if status_code == 404: 
+             return {"error": "Not Found"}
+        return None 
+    except (KeyError, IndexError, TypeError, AttributeError) as e:
+        print(f"Error parsing H2H JSON for batter {batter_id} vs pitcher {pitcher_id}: {e}")
+        return None 
+
+
 def get_schedule(
     start_date: str, end_date: Optional[str] = None, team_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
