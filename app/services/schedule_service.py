@@ -9,6 +9,7 @@ from app.clients import mlb_stats_client
 from app.services import game_service, player_service 
 from app.utils.helpers import convert_utc_to_local
 from app.utils import helpers
+from async_lru import alru_cache
 
 
 async def fetch_schedule(date, team_id):
@@ -100,10 +101,8 @@ def get_today_schedule() -> List[Dict]:
         today_date = datetime.date.today()
         today_date_str = today_date.strftime("%Y-%m-%d")
         raw_games = mlb_stats_client.get_schedule(
-            start_date=today_date_str, 
-            end_date=today_date_str
+            start_date=today_date_str
         )
-
         if not raw_games:
             return []
 
@@ -411,6 +410,7 @@ async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[
     return [game['game_id'] for game in completed_games[:num_games]]
 
 
+@alru_cache(maxsize=128)
 async def get_last_game_lineup(team_id: int) -> Optional[List[Dict]]:
     """Fetches the lineup from the most recently completed game for a team."""
     try:

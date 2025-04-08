@@ -2,6 +2,8 @@ import statsapi
 import asyncio
 from typing import Dict, List, Any, Optional
 import requests
+from async_lru import alru_cache
+from functools import lru_cache
 
 def get_game_data(game_pk: int) -> Dict[str, Any]:
     """Fetches raw game data using statsapi.get."""
@@ -32,6 +34,7 @@ def lookup_player(query: str) -> List[Dict[str, Any]]:
         print(f"Error looking up player with query '{query}': {e}")
         raise
 
+@lru_cache(maxsize=512)
 def get_player_h2h_stats(batter_id: int, pitcher_id: int) -> Optional[Dict[str, Any]]:
     """
     Fetches and extracts relevant *career total* H2H stats for a batter vs a pitcher.
@@ -119,6 +122,7 @@ def get_schedule(
         print(f"Error fetching schedule with params {params}: {e}")
         raise
 
+
 def get_player_info_with_stats(player_id: int, season: str) -> Dict[str, Any]:
     """Fetches player info hydrated with season stats using a direct API call."""
     url = f"https://statsapi.mlb.com/api/v1/people/{player_id}?hydrate=stats(group=[hitting,pitching],type=[season],season={season})"
@@ -157,6 +161,7 @@ async def get_schedule_async(
     # Filtering is currently done in schedule_service.py
     return await asyncio.to_thread(get_schedule, start_date, end_date, team_id)
 
+@alru_cache(maxsize=128)
 async def get_game_data_async(game_pk: int) -> Dict[str, Any]:
     """Fetches raw game data asynchronously using asyncio.to_thread."""
     return await asyncio.to_thread(get_game_data, game_pk) 

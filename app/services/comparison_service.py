@@ -69,21 +69,6 @@ async def get_game_comparison(game_id: int, lookback_games: int = 10) -> Dict[st
         tasks_to_run.append(game_service.get_team_stats_summary(away_team_id, lookback_games))
         tasks_to_run.append(game_service.get_team_stats_summary(home_team_id, lookback_games))
 
-        away_pitcher_task_index = -1
-        if away_pitcher_id and away_pitcher_id != "TBD":
-            tasks_to_run.append(asyncio.to_thread(player_service.get_player_stats, away_pitcher_id, current_year))
-            away_pitcher_task_index = len(tasks_to_run) - 1
-        else:
-             tasks_to_run.append(asyncio.sleep(0, result={"error": "TBD/Missing ID"})) 
-
-        home_pitcher_task_index = -1
-        if home_pitcher_id and home_pitcher_id != "TBD":
-            tasks_to_run.append(asyncio.to_thread(player_service.get_player_stats, home_pitcher_id, current_year))
-            home_pitcher_task_index = len(tasks_to_run) - 1
-        else:
-             tasks_to_run.append(asyncio.sleep(0, result={"error": "TBD/Missing ID"})) 
-
-
         away_lineup_h2h_task_indices = {} 
         home_lineup_h2h_task_indices = {} 
 
@@ -108,20 +93,8 @@ async def get_game_comparison(game_id: int, lookback_games: int = 10) -> Dict[st
         away_summary = results[0] if not isinstance(results[0], Exception) else {"error": str(results[0]), "games_analyzed": 0}
         home_summary = results[1] if not isinstance(results[1], Exception) else {"error": str(results[1]), "games_analyzed": 0}
 
-        away_pitcher_data = results[away_pitcher_task_index] if away_pitcher_task_index != -1 and not isinstance(results[away_pitcher_task_index], Exception) else {"error": "TBD/Missing ID or Fetch Error"}
-        home_pitcher_data = results[home_pitcher_task_index] if home_pitcher_task_index != -1 and not isinstance(results[home_pitcher_task_index], Exception) else {"error": "TBD/Missing ID or Fetch Error"}
-
-        # Helper to safely get ERA
-        def get_era_from_data(p_data):
-            # ...(your existing get_era_from_data function)...
-            if not p_data or isinstance(p_data, Exception) or "error" in p_data:
-                 return "N/A"
-            stats = p_data.get("pitching_stats", {}).get("season", {}) or \
-                    p_data.get("season_stats", {})
-            return stats.get("era", "N/A")
-
-        away_pitcher_era = get_era_from_data(away_pitcher_data)
-        home_pitcher_era = get_era_from_data(home_pitcher_data)
+        away_pitcher_era = pitcher_details.get("awayPitcherERA", "N/A")
+        home_pitcher_era = pitcher_details.get("homePitcherERA", "N/A")
 
         default_h2h = {"PA": "N/A"} 
 
