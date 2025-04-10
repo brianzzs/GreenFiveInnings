@@ -175,7 +175,6 @@ async def get_game_comparison(game_id: int, lookback_games: int = 10) -> Dict[st
                  "home": home_summary,
             },
         }
-
         return comparison_data
 
     except Exception as e:
