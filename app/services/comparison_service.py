@@ -135,7 +135,6 @@ async def get_game_comparison(game_id: int, lookback_games: int = 10) -> Dict[st
                 player_copy['h2h_stats'] = default_h2h.copy()
             home_lineup_with_h2h.append(player_copy)
 
-
         comparison_data = {
             "game_info": {
                 "game_id": game_id,
