@@ -6,7 +6,7 @@ from cache import SCHEDULE_CACHE
 import pytz
 from functools import lru_cache
 from app.clients import mlb_stats_client
-from app.services import game_service, player_service 
+from app.services import player_service 
 from app.utils.helpers import convert_utc_to_local
 from app.utils import helpers
 from async_lru import alru_cache
@@ -58,9 +58,6 @@ async def fetch_and_cache_game_ids_span(team_id: int, num_days: int = None) -> L
         results = await asyncio.gather(*tasks)
         for games_chunk in results:
             all_games.extend(games_chunk)
-    else:
-        start_date_str = base_date.strftime(date_format)
-        all_games = await fetch_schedule({"start_date": start_date_str, "end_date": start_date_str}, team_id)
 
     SCHEDULE_CACHE[cache_key] = all_games
     
@@ -155,7 +152,7 @@ def get_today_schedule() -> List[Dict]:
         print(f"[get_today_schedule] Error fetching or processing today's schedule: {e}")
         return []
 
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=1)
 def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
     """Gets historical schedule for a team up to num_days ago, including pitcher info and team records."""
     base_date = datetime.date.today()
@@ -164,14 +161,11 @@ def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
     if num_days is not None:
         start_date = base_date - datetime.timedelta(days=num_days)
         formatted_start_date = start_date.strftime(date_format)
-    else:
-        formatted_start_date = base_date.strftime(date_format)
 
     formatted_end_date = base_date.strftime(date_format)
 
     try:
-        team_records = _get_team_records_from_standings() # Get records dict
-        # Fetch schedule 
+        team_records = _get_team_records_from_standings() 
         schedule_summary = mlb_stats_client.get_schedule(
             start_date=formatted_start_date, 
             end_date=formatted_end_date, 
@@ -328,8 +322,6 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
                              **pitcher_info
                         }
                         games_with_pitcher_info.append(processed_game)
-                        # Optional: break here if you only want the single next game.
-                        # break
 
                     except Exception as inner_e:
                         print(f"[get_next_game_schedule] Error processing game data (tomorrow): {game}. Error: {inner_e}")
@@ -387,7 +379,7 @@ async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[
 
             for game in schedule_chunk:
                 game_status = game.get('status')
-                game_type = game.get('game_type') # Get game type
+                game_type = game.get('game_type')
                 if game_status in ["Final", "Game Over", "Completed Early"] and game_type in ['R', 'S'] and game.get('game_id'):
                     if game['game_id'] not in [g['game_id'] for g in completed_games]:
                         completed_games.append({
@@ -454,4 +446,3 @@ async def get_last_game_lineup(team_id: int) -> Optional[List[Dict]]:
         import traceback
         traceback.print_exc()
         return None
-
