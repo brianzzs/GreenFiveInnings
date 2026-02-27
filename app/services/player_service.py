@@ -4,6 +4,10 @@ from app.clients import mlb_stats_client
 from app.utils.calculations import TEAM_NAMES 
 import datetime
 import asyncio
+from app import season_context
+
+FINAL_GAME_STATUSES = {'Final', 'Game Over', 'Completed Early'}
+REGULAR_OR_SPRING_GAME_TYPES = {'R', 'S'}
 
 @lru_cache(maxsize=128) 
 def parse_stats(stats_string: str) -> dict:
@@ -65,7 +69,10 @@ def fetch_and_cache_pitcher_info(game_id: int, game_data: Dict = None) -> Dict:
                 return {"wins": "TBD", "losses": "TBD", "era": "TBD"}
             try:
                 stats_str = mlb_stats_client.get_player_stats(
-                    player_id=pitcher_id, group="pitching", type="season"
+                    player_id=pitcher_id,
+                    group="pitching",
+                    type="season",
+                    season=season_context.FORCED_SEASON_YEAR,
                 )
                 return parse_stats(stats_str)
             except Exception as e:
@@ -126,6 +133,8 @@ def search_player_by_name(name: str) -> List[Dict[str, Union[str, int]]]:
 @lru_cache(maxsize=128)
 def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]:
     try:
+        # Emergency override: always return 2025 season data.
+        season = season_context.FORCED_SEASON_YEAR
         lookup_result = mlb_stats_client.lookup_player(str(player_id))
         if not lookup_result:
              return {"error": f"Could not look up player ID {player_id}"}
@@ -276,11 +285,13 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
         if not team_id:
             return {"error": "Team ID not found for player"}
         
-        end_date = datetime.date.today()
+        end_date = season_context.SEASON_REFERENCE_DATE
+        player_key = f'ID{player_id}'
         player_stats = []
+        player_game_ids = set()
         days_to_search = 60  
         seen_dates = set() 
-        all_fetched_games = [] 
+        fetched_games_by_id = {}
         
         while len(player_stats) < num_games and days_to_search <= 180:
             start_date = end_date - datetime.timedelta(days=days_to_search)
@@ -294,16 +305,20 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                     start_date=start_date_str,
                     end_date=end_date_str
                 )
-                all_fetched_games.extend(recent_games)
+                for game in recent_games:
+                    game_id = game.get('game_id')
+                    if game_id:
+                        fetched_games_by_id[game_id] = game
             except Exception as e:
                 days_to_search *= 2
                 continue
 
             
-            unique_games = {game['game_id']: game for game in all_fetched_games}.values()
-            completed_games = [game for game in unique_games 
-                               if game.get('status') in ['Final', 'Game Over', 'Completed Early'] 
-                               and game.get('game_type') in ['R', 'S']]
+            completed_games = [
+                game for game in fetched_games_by_id.values()
+                if game.get('status') in FINAL_GAME_STATUSES
+                and game.get('game_type') in REGULAR_OR_SPRING_GAME_TYPES
+            ]
             
             completed_games_sorted = sorted(
                 completed_games,
@@ -314,7 +329,7 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
             recent_game_ids = [game['game_id'] for game in completed_games_sorted]
             
             
-            game_ids_to_fetch = [gid for gid in recent_game_ids if gid not in [ps['game_id'] for ps in player_stats]]
+            game_ids_to_fetch = [gid for gid in recent_game_ids if gid not in player_game_ids]
             if not game_ids_to_fetch:
                 days_to_search *= 2 
                 continue
@@ -347,10 +362,7 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                 teams = boxscore.get('teams', {})
                 home_team = teams.get('home', {})
                 away_team = teams.get('away', {})
-                players = home_team.get('players', {})
-                players.update(away_team.get('players', {}))
-                
-                player_key = f'ID{player_id}'
+                players = {**home_team.get('players', {}), **away_team.get('players', {})}
                 
                 if player_key in players:
                     if is_pitcher:
@@ -362,7 +374,8 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                         )
                         
                         if any(key in player_game_stats for key in ['inningsPitched', 'strikeOuts', 'hits', 'runs']):
-                            opponent_team = away_team if home_team['team']['id'] == team_id else home_team
+                            home_team_id = home_team.get('team', {}).get('id')
+                            opponent_team = away_team if home_team_id == team_id else home_team
                             player_stats.append({
                                 "game_id": game_id,
                                 "game_date": game_date_from_schedule, # Use date from schedule for sorting consistency
@@ -372,17 +385,20 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                                 "walks_allowed": player_game_stats.get('baseOnBalls', 0),
                                 "strikeouts": player_game_stats.get('strikeOuts', 0),
                                 "runs": player_game_stats.get('runs', 0),
-                                "opponent_team": TEAM_NAMES.get(opponent_team['team']['id'], 'Unknown')
+                                "opponent_team": TEAM_NAMES.get(opponent_team.get('team', {}).get('id'), 'Unknown')
                             })
+                            player_game_ids.add(game_id)
                             seen_dates.add(date_only) 
+                            processed_in_this_loop += 1
                     else: # Handle batters
                         player_api_data = players[player_key]
                         player_game_stats = player_api_data.get('stats', {}).get('batting', {})
 
                         # Include game if batter had at least one plate appearance or at bat
                         if player_game_stats.get('plateAppearances') or player_game_stats.get('atBats'):
-                            opponent_team = away_team if home_team['team']['id'] == team_id else home_team
-                            is_home_team = home_team['team']['id'] == team_id
+                            home_team_id = home_team.get('team', {}).get('id')
+                            opponent_team = away_team if home_team_id == team_id else home_team
+                            is_home_team = home_team_id == team_id
                             
                             # Safely get opponent pitcher
                             try:
@@ -390,7 +406,6 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                             except KeyError:
                                 opponent_pitcher = "Unknown"
 
-                            print(f"[DEBUG] Adding BATTER game from {date_only} (ID: {game_id})")
                             player_stats.append({
                                 "game_id": game_id,
                                 "game_date": game_date_from_schedule,
@@ -403,9 +418,10 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
                                 "at_bats": player_game_stats.get('atBats', 0),
                                 "avg": round((player_game_stats.get("hits", 0) / ab) if (ab := player_game_stats.get("atBats")) and ab > 0 else 0.0, 3),
                                 "strikeouts": player_game_stats.get('strikeOuts', 0),
-                                "opponent_team": TEAM_NAMES.get(opponent_team['team']['id'], 'Unknown'),
+                                "opponent_team": TEAM_NAMES.get(opponent_team.get('team', {}).get('id'), 'Unknown'),
                                 "opponent_pitcher": opponent_pitcher
                             })
+                            player_game_ids.add(game_id)
                             seen_dates.add(date_only)
                             processed_in_this_loop += 1
             
@@ -443,67 +459,83 @@ def calculate_betting_stats(recent_stats: List[Dict], is_pitcher: bool) -> Dict[
     if is_pitcher:
         # Pitcher betting markets
         innings_pitched_thresholds = [4.5, 5.5, 6.5]
+        innings_pitched_values = [float(game.get('innings_pitched', 0) or 0) for game in recent_stats]
         for threshold in innings_pitched_thresholds:
-            games_over = sum(1 for game in recent_stats if float(game.get('innings_pitched', 0)) > threshold)
+            games_over = sum(1 for value in innings_pitched_values if value > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_innings_pitched"] = round(games_over / total_games * 100, 2)
         
         hits_allowed_thresholds = [3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]
+        hits_allowed_values = [game.get('hits_allowed', 0) for game in recent_stats]
         for threshold in hits_allowed_thresholds:
-            games_over = sum(1 for game in recent_stats if game.get('hits_allowed', 0) > threshold)
+            games_over = sum(1 for value in hits_allowed_values if value > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_hits_allowed"] = round(games_over / total_games * 100, 2)
         
+        uses_runs_field = 'runs' in recent_stats[0]
+        if uses_runs_field:
+            runs_allowed_values = [game.get('runs', 0) for game in recent_stats]
+        else:
+            runs_allowed_values = [
+                (game.get('hits_allowed', 0) + game.get('walks_allowed', 0)) / 3
+                for game in recent_stats
+            ]
         runs_allowed_thresholds = [1.5, 2.5, 3.5, 4.5, 5.5]
         for threshold in runs_allowed_thresholds:
-            if 'runs' in recent_stats[0]:
-                games_over = sum(1 for game in recent_stats if game.get('runs', 0) > threshold)
-            else:
-                games_over = sum(1 for game in recent_stats if (game.get('hits_allowed', 0) + game.get('walks_allowed', 0)) / 3 > threshold)
+            games_over = sum(1 for value in runs_allowed_values if value > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_runs_allowed"] = round(games_over / total_games * 100, 2)
         
         # Strikeouts
         k_thresholds = [3.5, 4.5, 5.5, 6.5, 7.5, 8.5]
+        strikeout_values = [game.get('strikeouts', 0) for game in recent_stats]
         for threshold in k_thresholds:
-            games_over = sum(1 for game in recent_stats if game.get('strikeouts', 0) > threshold)
+            games_over = sum(1 for value in strikeout_values if value > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_strikeouts"] = round(games_over / total_games * 100, 2)
     
     else:
         # Batter betting markets
         hit_thresholds = [0.5, 1.5, 2.5]
+        hits_values = [game.get('hits', 0) for game in recent_stats]
         for threshold in hit_thresholds:
-            games_over = sum(1 for game in recent_stats if game.get('hits', 0) > threshold)
+            games_over = sum(1 for value in hits_values if value > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_hits"] = round(games_over / total_games * 100, 2)
         
-        # Total bases (calculate from hits, doubles, triples, home runs)
+        # Total bases (calculate from hits, doubles, triples, home runs).
+        total_bases_values = []
         for game in recent_stats:
-            # Calculate total bases if not present
-            if 'total_bases' not in game:
-                singles = game.get('hits', 0) - game.get('doubles', 0) - game.get('triples', 0) - game.get('home_runs', 0)
-                game['total_bases'] = singles + 2 * game.get('doubles', 0) + 3 * game.get('triples', 0) + 4 * game.get('home_runs', 0)
-                
-                # If we only have hits and home runs
-                if 'doubles' not in game and 'triples' not in game:
-                    game['total_bases'] = game.get('hits', 0) + 3 * game.get('home_runs', 0)
+            if 'total_bases' in game:
+                total_bases_values.append(game.get('total_bases', 0))
+                continue
+
+            singles = game.get('hits', 0) - game.get('doubles', 0) - game.get('triples', 0) - game.get('home_runs', 0)
+            total_bases = singles + 2 * game.get('doubles', 0) + 3 * game.get('triples', 0) + 4 * game.get('home_runs', 0)
+            if 'doubles' not in game and 'triples' not in game:
+                total_bases = game.get('hits', 0) + 3 * game.get('home_runs', 0)
+            # Preserve previous behavior: enrich source game payload in-place.
+            game['total_bases'] = total_bases
+            total_bases_values.append(total_bases)
         
         base_thresholds = [1.5, 2.5, 3.5]
         for threshold in base_thresholds:
-            games_over = sum(1 for game in recent_stats if game.get('total_bases', 0) > threshold)
+            games_over = sum(1 for value in total_bases_values if value > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_total_bases"] = round(games_over / total_games * 100, 2)
         
         # Home runs
         hr_threshold = 0.5
-        games_over = sum(1 for game in recent_stats if game.get('home_runs', 0) > hr_threshold)
+        home_runs_values = [game.get('home_runs', 0) for game in recent_stats]
+        games_over = sum(1 for value in home_runs_values if value > hr_threshold)
         betting_markets[f"over_{str(hr_threshold).replace('.', '_')}_home_runs"] = round(games_over / total_games * 100, 2)
         
         # RBIs
         rbi_thresholds = [0.5, 1.5, 2.5]
+        rbi_values = [game.get('rbis', 0) for game in recent_stats]
         for threshold in rbi_thresholds:
-            games_over = sum(1 for game in recent_stats if game.get('rbis', 0) > threshold)
+            games_over = sum(1 for value in rbi_values if value > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_rbis"] = round(games_over / total_games * 100, 2)
         
         # Hits + Runs + RBIs combined
         hr_rbi_thresholds = [1.5, 2.5, 3.5, 4.5]
+        combined_values = [game.get('hits', 0) + game.get('runs', 0) + game.get('rbis', 0) for game in recent_stats]
         for threshold in hr_rbi_thresholds:
-            games_over = sum(1 for game in recent_stats if (game.get('hits', 0) + game.get('runs', 0) + game.get('rbis', 0)) > threshold)
+            games_over = sum(1 for value in combined_values if value > threshold)
             betting_markets[f"over_{str(threshold).replace('.', '_')}_hits_runs_rbis"] = round(games_over / total_games * 100, 2)
     
     return betting_markets

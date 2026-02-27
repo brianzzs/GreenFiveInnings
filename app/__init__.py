@@ -48,7 +48,8 @@ def create_app(config_name='default'):
     
     @app.before_request
     def authenticate():
-        if app.config['DEBUG'] and request.remote_addr == '127.0.0.1':
+        local_debug_addrs = {'127.0.0.1', '::1', '::ffff:127.0.0.1'}
+        if app.config['DEBUG'] and request.remote_addr in local_debug_addrs:
             return None
             
         if request.method == 'OPTIONS':

@@ -17,9 +17,38 @@ def get_player_stats(
     player_id: int, group: str, type: str, season: Optional[str] = None
 ) -> str: 
     """Fetches player stats using statsapi.player_stats."""
-    params = {"personId": player_id, "group": group, "type": type}
+    # NOTE: python-mlb-statsapi (installed here) does not accept a `season`
+    # kwarg for statsapi.player_stats. For pinned-season requests we call the
+    # MLB Stats API endpoint directly and return a compatible text payload.
     if season:
-        params["season"] = season
+        url = (
+            f"https://statsapi.mlb.com/api/v1/people/{player_id}/stats"
+            f"?stats={type}&group={group}&season={season}"
+        )
+        try:
+            response = requests.get(url, timeout=20)
+            response.raise_for_status()
+            data = response.json()
+            stats_list = data.get("stats", [])
+            if not stats_list:
+                return ""
+            splits = stats_list[0].get("splits", [])
+            if not splits:
+                return ""
+            stat = splits[0].get("stat", {})
+            return (
+                f"Wins: {stat.get('wins', 'TBD')}\n"
+                f"Losses: {stat.get('losses', 'TBD')}\n"
+                f"ERA: {stat.get('era', 'TBD')}"
+            )
+        except requests.exceptions.RequestException as e:
+            print(
+                f"Error fetching season player stats for player {player_id}, "
+                f"season {season}: {e}"
+            )
+            raise
+
+    params = {"personId": player_id, "group": group, "type": type}
     try:
         return statsapi.player_stats(**params) 
     except Exception as e:

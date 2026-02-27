@@ -1,5 +1,4 @@
 import asyncio
-import datetime
 from typing import Dict, Any, List, Optional
 from app.services import game_service, player_service, schedule_service
 from app.clients import mlb_stats_client
@@ -28,7 +27,6 @@ async def get_game_comparison(game_id: int, lookback_games: int = 10) -> Dict[st
         datetime_info = game_data.get('datetime', {})
         venue_info = game_data.get('venue', {})
         status_info = game_data.get('status', {})
-        current_year = str(datetime.datetime.now().year)
 
 
         pitcher_details = player_service.fetch_and_cache_pitcher_info(game_id, raw_game_data)

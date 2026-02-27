@@ -1,16 +1,13 @@
 import asyncio
-import aiohttp 
 from typing import Dict, List, Any
 from app.clients import mlb_stats_client
 from cache import GAME_CACHE 
-from functools import lru_cache
 from app.services import schedule_service 
 from app.utils.calculations import (
     TEAM_NAMES, 
     calculate_win_percentage,
 
 )
-import aiohttp
 
 
 def fetch_and_cache_linescore(game_id: int) -> List[Dict]:
@@ -178,26 +175,14 @@ async def get_team_stats_summary(team_id: int, num_games: int, include_details: 
 
 
             f5_innings = innings[:min(len(innings), 5)] 
-            team_runs_f5 = 0
-            runs_found_f5 = False
-            for inning_num, inning in enumerate(f5_innings):
-                inning_data = inning.get("home" if is_home_team else "away", {})
-                inning_runs = inning_data.get("runs")
-                if inning_runs is not None:
-                    team_runs_f5 += inning_runs
-                    runs_found_f5 = True
-            
-            if runs_found_f5:
-                team_runs_f5_list.append(team_runs_f5)
-            else:
-                 print(f"[get_team_stats_summary] Warning: No F5 runs data found for team {team_id} game {game_pk}")
-
             away_total_runs_f5 = 0
             home_total_runs_f5 = 0
             away_runs_f5_list = [None] * 5 
             home_runs_f5_list = [None] * 5
             away_runs_found_f5 = False
             home_runs_found_f5 = False
+            team_runs_f5 = 0
+            team_runs_found_f5 = False
             for i, inning in enumerate(f5_innings):
                 away_inning_runs = inning.get("away", {}).get("runs")
                 home_inning_runs = inning.get("home", {}).get("runs")
@@ -209,6 +194,16 @@ async def get_team_stats_summary(team_id: int, num_games: int, include_details: 
                     home_total_runs_f5 += home_inning_runs
                     home_runs_f5_list[i] = home_inning_runs
                     home_runs_found_f5 = True
+
+                team_inning_runs = home_inning_runs if is_home_team else away_inning_runs
+                if team_inning_runs is not None:
+                    team_runs_f5 += team_inning_runs
+                    team_runs_found_f5 = True
+
+            if team_runs_found_f5:
+                team_runs_f5_list.append(team_runs_f5)
+            else:
+                 print(f"[get_team_stats_summary] Warning: No F5 runs data found for team {team_id} game {game_pk}")
             
             if away_runs_found_f5 and home_runs_found_f5:
                 moneyline_results_f5_for_calc.append({

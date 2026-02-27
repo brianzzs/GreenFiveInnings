@@ -5,11 +5,10 @@ from app.clients import mlb_stats_client
 from cache import SCHEDULE_CACHE 
 import pytz
 from functools import lru_cache
-from app.clients import mlb_stats_client
 from app.services import player_service 
-from app.utils.helpers import convert_utc_to_local
 from app.utils import helpers
 from async_lru import alru_cache
+from app import season_context
 
 
 async def fetch_schedule(date, team_id):
@@ -34,7 +33,7 @@ async def fetch_and_cache_game_ids_span(team_id: int, num_days: int = None) -> L
     if cache_key in SCHEDULE_CACHE:
         return [game["game_id"] for game in SCHEDULE_CACHE[cache_key]]
     
-    base_date = datetime.date.today() - datetime.timedelta(days=1) 
+    base_date = season_context.SEASON_REFERENCE_DATE
     date_format = "%m/%d/%Y"
     all_games = []
 
@@ -69,7 +68,10 @@ def _get_team_records_from_standings() -> Dict[int, str]:
     """Fetches current standings and returns a dict mapping team ID to 'W-L' record."""
     records = {}
     try:
-        standings_data = mlb_stats_client.get_standings(league_id="103,104")
+        standings_data = mlb_stats_client.get_standings(
+            league_id="103,104",
+            date=season_context.standings_date_str(),
+        )
         
         for division_id, division_data in standings_data.items():
             if isinstance(division_data, dict) and 'teams' in division_data:
@@ -95,8 +97,9 @@ def get_today_schedule() -> List[Dict]:
     processed_games = []
     try:
         team_records = _get_team_records_from_standings()
-        today_date = datetime.date.today()
+        today_date = season_context.SEASON_REFERENCE_DATE
         today_date_str = today_date.strftime("%Y-%m-%d")
+        include_completed_games = today_date < datetime.date.today()
         raw_games = mlb_stats_client.get_schedule(
             start_date=today_date_str
         )
@@ -111,7 +114,9 @@ def get_today_schedule() -> List[Dict]:
                 away_id = game.get("away_id")
                 game_time_utc_str = game.get("game_datetime")
 
-                if not game_id or not home_id or not away_id or game_status in ["Final", "Game Over", "Completed Early"]:
+                if not game_id or not home_id or not away_id:
+                    continue
+                if not include_completed_games and game_status in ["Final", "Game Over", "Completed Early"]:
                     continue
 
                 try:
@@ -155,12 +160,14 @@ def get_today_schedule() -> List[Dict]:
 @lru_cache(maxsize=1)
 def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
     """Gets historical schedule for a team up to num_days ago, including pitcher info and team records."""
-    base_date = datetime.date.today()
+    base_date = season_context.SEASON_REFERENCE_DATE
     date_format = "%Y-%m-%d" 
 
     if num_days is not None:
         start_date = base_date - datetime.timedelta(days=num_days)
-        formatted_start_date = start_date.strftime(date_format)
+    else:
+        start_date = season_context.SEASON_START_DATE
+    formatted_start_date = start_date.strftime(date_format)
 
     formatted_end_date = base_date.strftime(date_format)
 
@@ -224,9 +231,10 @@ def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
 @lru_cache(maxsize=128)
 def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
     """Gets the upcoming schedule (today or tomorrow) for a team, including pitcher info and team records."""
-    base_date = datetime.date.today()
+    base_date = season_context.SEASON_REFERENCE_DATE
     date_format = "%Y-%m-%d"
     formatted_today = base_date.strftime(date_format)
+    include_completed_games = base_date < datetime.date.today()
     team_param = team_id if team_id != 0 else None
     games_with_pitcher_info = [] 
 
@@ -251,7 +259,7 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
 
                     game_status = game.get("status")
                     # Skip games that are already finished
-                    if game_status in ["Final", "Game Over", "Completed Early"]:
+                    if not include_completed_games and game_status in ["Final", "Game Over", "Completed Early"]:
                         continue
 
                     away_record_str = team_records.get(away_id, "0-0")
@@ -300,7 +308,7 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
                             continue
 
                         game_status = game.get("status")
-                        if game_status in ["Final", "Game Over", "Completed Early"]:
+                        if not include_completed_games and game_status in ["Final", "Game Over", "Completed Early"]:
                             continue
                         
                         away_record_str = team_records.get(away_id, "0-0")
@@ -353,9 +361,10 @@ async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[
         return []
 
     completed_games = []
-    current_year = datetime.date.today().year
+    seen_game_ids = set()
+    current_year = int(season_context.FORCED_SEASON_YEAR)
     year_start_date = datetime.date(current_year, 1, 1)
-    end_date = datetime.date.today() 
+    end_date = season_context.SEASON_REFERENCE_DATE
     days_to_check_increment = 15 
     total_days_checked = 0
     date_format = "%Y-%m-%d"
@@ -380,12 +389,18 @@ async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[
             for game in schedule_chunk:
                 game_status = game.get('status')
                 game_type = game.get('game_type')
-                if game_status in ["Final", "Game Over", "Completed Early"] and game_type in ['R', 'S'] and game.get('game_id'):
-                    if game['game_id'] not in [g['game_id'] for g in completed_games]:
-                        completed_games.append({
-                            'game_id': game['game_id'],
-                            'game_datetime': game['game_datetime']
-                        })
+                game_id = game.get('game_id')
+                if (
+                    game_status in ["Final", "Game Over", "Completed Early"]
+                    and game_type in ['R', 'S']
+                    and game_id
+                    and game_id not in seen_game_ids
+                ):
+                    seen_game_ids.add(game_id)
+                    completed_games.append({
+                        'game_id': game_id,
+                        'game_datetime': game['game_datetime']
+                    })
 
             completed_games.sort(key=lambda x: x['game_datetime'], reverse=True)
 
