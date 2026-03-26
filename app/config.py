@@ -5,7 +5,7 @@ class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'default-secret-key-change-in-production')
     DEBUG = False
     TESTING = False
-    API_KEY_REQUIRED = True
+    API_KEY_REQUIRED = False 
     SSL_REDIRECT = False
     
     MAX_CONTENT_LENGTH = 1 * 1024 * 1024 
