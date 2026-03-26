@@ -33,7 +33,7 @@ async def fetch_and_cache_game_ids_span(team_id: int, num_days: int = None) -> L
     if cache_key in SCHEDULE_CACHE:
         return [game["game_id"] for game in SCHEDULE_CACHE[cache_key]]
     
-    base_date = season_context.SEASON_REFERENCE_DATE
+    base_date = season_context.reference_date()
     date_format = "%m/%d/%Y"
     all_games = []
 
@@ -71,6 +71,7 @@ def _get_team_records_from_standings() -> Dict[int, str]:
         standings_data = mlb_stats_client.get_standings(
             league_id="103,104",
             date=season_context.standings_date_str(),
+            season=season_context.active_season_year(),
         )
         
         for division_id, division_data in standings_data.items():
@@ -97,7 +98,7 @@ def get_today_schedule() -> List[Dict]:
     processed_games = []
     try:
         team_records = _get_team_records_from_standings()
-        today_date = season_context.SEASON_REFERENCE_DATE
+        today_date = season_context.reference_date()
         today_date_str = today_date.strftime("%Y-%m-%d")
         include_completed_games = today_date < datetime.date.today()
         raw_games = mlb_stats_client.get_schedule(
@@ -160,13 +161,13 @@ def get_today_schedule() -> List[Dict]:
 @lru_cache(maxsize=1)
 def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
     """Gets historical schedule for a team up to num_days ago, including pitcher info and team records."""
-    base_date = season_context.SEASON_REFERENCE_DATE
+    base_date = season_context.reference_date()
     date_format = "%Y-%m-%d" 
 
     if num_days is not None:
         start_date = base_date - datetime.timedelta(days=num_days)
     else:
-        start_date = season_context.SEASON_START_DATE
+        start_date = season_context.season_start_date(base_date)
     formatted_start_date = start_date.strftime(date_format)
 
     formatted_end_date = base_date.strftime(date_format)
@@ -231,7 +232,7 @@ def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
 @lru_cache(maxsize=128)
 def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
     """Gets the upcoming schedule (today or tomorrow) for a team, including pitcher info and team records."""
-    base_date = season_context.SEASON_REFERENCE_DATE
+    base_date = season_context.reference_date()
     date_format = "%Y-%m-%d"
     formatted_today = base_date.strftime(date_format)
     include_completed_games = base_date < datetime.date.today()
@@ -362,9 +363,9 @@ async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[
 
     completed_games = []
     seen_game_ids = set()
-    current_year = int(season_context.FORCED_SEASON_YEAR)
+    current_year = int(season_context.active_season_year())
     year_start_date = datetime.date(current_year, 1, 1)
-    end_date = season_context.SEASON_REFERENCE_DATE
+    end_date = season_context.reference_date()
     days_to_check_increment = 15 
     total_days_checked = 0
     date_format = "%Y-%m-%d"

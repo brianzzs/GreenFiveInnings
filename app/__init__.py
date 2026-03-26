@@ -5,6 +5,7 @@ import os
 import secrets
 import time
 import functools
+from typing import Optional
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -48,7 +49,7 @@ def create_app(config_name='default'):
         }
     })
 
-    def get_provided_api_key() -> str | None:
+    def get_provided_api_key() -> Optional[str]:
         api_key = request.headers.get('X-API-Key')
         if api_key:
             return api_key.strip()

@@ -1,0 +1,17 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      FLASK_CONFIG: ${FLASK_CONFIG:-dev}
+      HOST: 0.0.0.0
+      PORT: 8000
+      API_KEY_REQUIRED: ${API_KEY_REQUIRED:-false}
+      SECRET_KEY: ${SECRET_KEY:-local-dev-secret}
+      API_KEY: ${API_KEY:-}
+    volumes:
+      - .:/app
+    restart: unless-stopped

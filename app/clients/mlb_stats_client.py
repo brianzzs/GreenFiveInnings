@@ -172,11 +172,17 @@ def get_player_stat_data(player_id: int, group: str, type: str) -> Dict[str, Any
         print(f"Error fetching player stat data for player {player_id}, group {group}, type {type}: {e}")
         raise
 
-def get_standings(league_id: str = "103,104", date: Optional[str] = None) -> Dict:
+def get_standings(
+    league_id: str = "103,104",
+    date: Optional[str] = None,
+    season: Optional[str] = None,
+) -> Dict:
     """Fetches standings data using statsapi.standings_data."""
     params = {"leagueId": league_id}
     if date:
         params["date"] = date
+    if season:
+        params["season"] = season
     try:
         return statsapi.standings_data(**params)
     except Exception as e:

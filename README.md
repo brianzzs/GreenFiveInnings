@@ -87,6 +87,34 @@ The back-end leverages Python's `asyncio` library to handle multiple API request
 
 The back-end can be deployed using various platforms such as **Heroku**, **AWS**, or **Docker**. Below are some common deployment options:
 
+## Docker
+
+For a clean local run without managing Python versions or virtualenvs on your machine:
+
+```bash
+docker compose up --build
+```
+
+The API will be available at:
+
+```text
+http://localhost:8000
+```
+
+Useful commands:
+
+```bash
+docker compose up --build
+docker compose down
+docker compose logs -f
+```
+
+The local Docker defaults are:
+
+- `FLASK_CONFIG=dev`
+- `API_KEY_REQUIRED=false`
+- port `8000`
+
 
 ## Contributing
 

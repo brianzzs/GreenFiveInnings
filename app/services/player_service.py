@@ -72,7 +72,7 @@ def fetch_and_cache_pitcher_info(game_id: int, game_data: Dict = None) -> Dict:
                     player_id=pitcher_id,
                     group="pitching",
                     type="season",
-                    season=season_context.FORCED_SEASON_YEAR,
+                    season=season_context.active_season_year(),
                 )
                 return parse_stats(stats_str)
             except Exception as e:
@@ -133,8 +133,6 @@ def search_player_by_name(name: str) -> List[Dict[str, Union[str, int]]]:
 @lru_cache(maxsize=128)
 def get_player_stats(player_id: int, season: str) -> Dict[str, Union[str, Dict]]:
     try:
-        # Emergency override: always return 2025 season data.
-        season = season_context.FORCED_SEASON_YEAR
         lookup_result = mlb_stats_client.lookup_player(str(player_id))
         if not lookup_result:
              return {"error": f"Could not look up player ID {player_id}"}
@@ -285,7 +283,7 @@ async def get_player_recent_stats(player_id: int, num_games: int) -> Dict[str, U
         if not team_id:
             return {"error": "Team ID not found for player"}
         
-        end_date = season_context.SEASON_REFERENCE_DATE
+        end_date = season_context.reference_date()
         player_key = f'ID{player_id}'
         player_stats = []
         player_game_ids = set()
