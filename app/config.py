@@ -1,11 +1,17 @@
 import os
 
+def get_env_bool(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 class Config:
     """Base configuration."""
     SECRET_KEY = os.environ.get('SECRET_KEY', 'default-secret-key-change-in-production')
     DEBUG = False
     TESTING = False
-    API_KEY_REQUIRED = False 
+    API_KEY_REQUIRED = get_env_bool('API_KEY_REQUIRED', False)
     SSL_REDIRECT = False
     
     MAX_CONTENT_LENGTH = 1 * 1024 * 1024 
@@ -17,20 +23,20 @@ class Config:
 
 class DevelopmentConfig(Config):
     DEBUG = True 
-    API_KEY_REQUIRED = False  
+    API_KEY_REQUIRED = get_env_bool('API_KEY_REQUIRED', False)
     SESSION_COOKIE_SECURE = False
     REMEMBER_COOKIE_SECURE = False
 
 class TestingConfig(Config):
     TESTING = True
-    API_KEY_REQUIRED = False  
+    API_KEY_REQUIRED = get_env_bool('API_KEY_REQUIRED', False)
     SESSION_COOKIE_SECURE = False
     REMEMBER_COOKIE_SECURE = False
 
 class ProductionConfig(Config):
     SSL_REDIRECT = True if os.environ.get('DYNO') else False
     
-    API_KEY_REQUIRED = True
+    API_KEY_REQUIRED = get_env_bool('API_KEY_REQUIRED', True)
     
     CONTENT_SECURITY_POLICY = {
         'default-src': "'self'",

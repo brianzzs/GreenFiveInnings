@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from .config import config_by_name
 import os
+import secrets
 import time
 import functools
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -16,6 +17,7 @@ from .api.comparison import comparison_bp
 def create_app(config_name='default'): 
     """Flask application factory pattern."""
     app = Flask(__name__.split('.')[0]) 
+    app.url_map.strict_slashes = False
 
     flask_config_name = os.getenv('FLASK_CONFIG') or config_name
     app.config.from_object(config_by_name[flask_config_name])
@@ -39,12 +41,24 @@ def create_app(config_name='default'):
                 "http://127.0.0.1:3000"
             ],
             "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type", "X-API-Key"],
+            "allow_headers": ["Content-Type", "X-API-Key", "Authorization"],
             "supports_credentials": True,
-            "expose_headers": ["Content-Type", "X-API-Key"],
+            "expose_headers": ["Content-Type", "X-API-Key", "Authorization"],
             "max_age": 3600
         }
     })
+
+    def get_provided_api_key() -> str | None:
+        api_key = request.headers.get('X-API-Key')
+        if api_key:
+            return api_key.strip()
+
+        auth_header = request.headers.get('Authorization', '')
+        bearer_prefix = 'Bearer '
+        if auth_header.startswith(bearer_prefix):
+            return auth_header[len(bearer_prefix):].strip()
+
+        return None
     
     @app.before_request
     def authenticate():
@@ -57,11 +71,17 @@ def create_app(config_name='default'):
             
         if request.path == '/':
             return None
-            
-        api_key = request.headers.get('X-API-Key')
+
+        if not app.config.get('API_KEY_REQUIRED', True):
+            return None
+
         valid_api_key = os.environ.get('API_KEY')
-        
-        if not api_key or api_key != valid_api_key:
+        if not valid_api_key:
+            app.logger.error("API_KEY_REQUIRED is enabled but API_KEY is not configured.")
+            return jsonify({"error": "Server authentication is not configured"}), 500
+
+        provided_api_key = get_provided_api_key()
+        if not provided_api_key or not secrets.compare_digest(provided_api_key, valid_api_key):
             return jsonify({"error": "Unauthorized access"}), 401
             
         request.start_time = time.time()
@@ -70,7 +90,7 @@ def create_app(config_name='default'):
     def add_security_headers(response):
         response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
         response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-API-Key'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-API-Key, Authorization'
         response.headers['Access-Control-Allow-Credentials'] = 'true'
         
         response.headers['X-Content-Type-Options'] = 'nosniff'
