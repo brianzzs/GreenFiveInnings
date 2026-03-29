@@ -5,6 +5,19 @@ import requests
 from async_lru import alru_cache
 from functools import lru_cache
 
+MLB_API_BASE_URL = "https://statsapi.mlb.com/api/v1"
+MLB_API_TIMEOUT = 10
+
+
+def _mlb_get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    response = requests.get(
+        f"{MLB_API_BASE_URL}{path}",
+        params={k: v for k, v in (params or {}).items() if v is not None},
+        timeout=MLB_API_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json()
+
 def get_game_data(game_pk: int) -> Dict[str, Any]:
     """Fetches raw game data using statsapi.get."""
     try:
@@ -26,7 +39,7 @@ def get_player_stats(
             f"?stats={type}&group={group}&season={season}"
         )
         try:
-            response = requests.get(url, timeout=20)
+            response = requests.get(url, timeout=MLB_API_TIMEOUT)
             response.raise_for_status()
             data = response.json()
             stats_list = data.get("stats", [])
@@ -80,7 +93,7 @@ def get_player_h2h_stats(batter_id: int, pitcher_id: int) -> Optional[Dict[str, 
     url = f"https://statsapi.mlb.com/api/v1/people/{batter_id}/stats?stats=vsTeamTotal&group=hitting&opposingPlayerId={pitcher_id}&language=en"
 
     try:
-        response = requests.get(url, timeout=20)
+        response = requests.get(url, timeout=MLB_API_TIMEOUT)
         response.raise_for_status()
         data = response.json()
 
@@ -156,7 +169,7 @@ def get_player_info_with_stats(player_id: int, season: str) -> Dict[str, Any]:
     """Fetches player info hydrated with season stats using a direct API call."""
     url = f"https://statsapi.mlb.com/api/v1/people/{player_id}?hydrate=stats(group=[hitting,pitching],type=[season],season={season})"
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=MLB_API_TIMEOUT)
         response.raise_for_status() 
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -177,14 +190,68 @@ def get_standings(
     date: Optional[str] = None,
     season: Optional[str] = None,
 ) -> Dict:
-    """Fetches standings data using statsapi.standings_data."""
-    params = {"leagueId": league_id}
+    """Fetch and normalize standings data with an explicit request timeout.
+
+    The third-party statsapi.standings_data helper does not set a request
+    timeout. On Railway that can hang long enough for Gunicorn to kill the
+    worker, so this wrapper calls the MLB endpoint directly.
+    """
+    params = {
+        "leagueId": league_id,
+        "season": season,
+        "standingsTypes": "regularSeason",
+        "hydrate": "team(division)",
+        "fields": (
+            "records,standingsType,teamRecords,team,name,division,id,"
+            "nameShort,abbreviation,divisionRank,gamesBack,wildCardRank,"
+            "wildCardGamesBack,wildCardEliminationNumber,divisionGamesBack,"
+            "clinched,eliminationNumber,winningPercentage,type,wins,losses,"
+            "leagueRank,sportRank"
+        ),
+    }
     if date:
         params["date"] = date
-    if season:
-        params["season"] = season
     try:
-        return statsapi.standings_data(**params)
+        response = requests.get(
+            "https://statsapi.mlb.com/api/v1/standings",
+            params={k: v for k, v in params.items() if v is not None},
+            timeout=10,
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        divisions = {}
+        for record in payload.get("records", []):
+            for team_record in record.get("teamRecords", []):
+                division = team_record.get("team", {}).get("division", {})
+                division_id = division.get("id")
+                if division_id is None:
+                    continue
+
+                if division_id not in divisions:
+                    divisions[division_id] = {
+                        "div_name": division.get("name", "Unknown"),
+                        "teams": [],
+                    }
+
+                divisions[division_id]["teams"].append(
+                    {
+                        "name": team_record.get("team", {}).get("name"),
+                        "div_rank": team_record.get("divisionRank"),
+                        "w": team_record.get("wins"),
+                        "l": team_record.get("losses"),
+                        "gb": team_record.get("gamesBack"),
+                        "wc_rank": team_record.get("wildCardRank", "-"),
+                        "wc_gb": team_record.get("wildCardGamesBack", "-"),
+                        "wc_elim_num": team_record.get("wildCardEliminationNumber", "-"),
+                        "elim_num": team_record.get("eliminationNumber", "-"),
+                        "team_id": team_record.get("team", {}).get("id"),
+                        "league_rank": team_record.get("leagueRank", "-"),
+                        "sport_rank": team_record.get("sportRank", "-"),
+                    }
+                )
+
+        return divisions
     except Exception as e:
         print(f"Error fetching standings data with params {params}: {e}")
         raise

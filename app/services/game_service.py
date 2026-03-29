@@ -92,7 +92,6 @@ async def get_team_stats_summary(team_id: int, num_games: int, include_details: 
         game_ids = await schedule_service.fetch_last_n_completed_game_ids(team_id, num_games)
 
         if not game_ids:
-            print(f"[get_team_stats_summary] No completed games found for team {team_id} in the searched range.")
             return_data = {
                 "games_analyzed": 0,
                 "nrfi": 0.0, 
@@ -110,7 +109,6 @@ async def get_team_stats_summary(team_id: int, num_games: int, include_details: 
         valid_game_details = [gd for gd in game_details if gd and gd.get("gameData") and gd.get("liveData")]
 
         if not valid_game_details:
-             print(f"[get_team_stats_summary] Failed to fetch details for game IDs: {game_ids}")
              return_data = {
                 "games_analyzed": 0,
                 "nrfi": 0.0,
@@ -136,7 +134,6 @@ async def get_team_stats_summary(team_id: int, num_games: int, include_details: 
             linescore = live_data.get("linescore") 
             
             if not linescore or not linescore.get("innings") or not isinstance(linescore.get("innings"), list) or len(linescore["innings"]) == 0:
-                print(f"[get_team_stats_summary] Skipping game {game_pk}: Missing or empty linescore/innings data.")
                 continue
                 
             innings = linescore["innings"] 
@@ -152,7 +149,6 @@ async def get_team_stats_summary(team_id: int, num_games: int, include_details: 
             home_pitcher_hand = "TBD" 
 
             if not away_team_data.get('id') or not home_team_data.get('id'):
-                print(f"[get_team_stats_summary] Skipping game {game_pk}: Missing team ID(s).")
                 continue
 
             games_processed_count += 1
@@ -170,8 +166,6 @@ async def get_team_stats_summary(team_id: int, num_games: int, include_details: 
                 game_nrfi_list.append(fi_home_runs == 0 and fi_away_runs == 0)
                 # Team NRFI (This team didn't score)
                 team_nrfi_list.append(fi_home_runs == 0 if is_home_team else fi_away_runs == 0)
-            else:
-                print(f"[get_team_stats_summary] Warning: Missing first inning runs data for game {game_pk}")
 
 
             f5_innings = innings[:min(len(innings), 5)] 
@@ -202,16 +196,12 @@ async def get_team_stats_summary(team_id: int, num_games: int, include_details: 
 
             if team_runs_found_f5:
                 team_runs_f5_list.append(team_runs_f5)
-            else:
-                 print(f"[get_team_stats_summary] Warning: No F5 runs data found for team {team_id} game {game_pk}")
             
             if away_runs_found_f5 and home_runs_found_f5:
                 moneyline_results_f5_for_calc.append({
                     "away_team": {"id": away_team_data.get("id"), "total_runs": away_total_runs_f5},
                     "home_team": {"id": home_team_data.get("id"), "total_runs": home_total_runs_f5}
                 })
-            else:
-                print(f"[get_team_stats_summary] Warning: Incomplete F5 runs data for score comparison in game {game_pk}")
 
             if include_details:
                 detailed_game_results.append({

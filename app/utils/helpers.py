@@ -29,16 +29,14 @@ def extract_lineup(boxscore_data: Dict, team_key: str) -> Optional[List[Dict]]:
         batting_order_ids = team_data.get('battingOrder', [])
         
         if not batting_order_ids:
-            print(f"[extract_lineup] No batting order found for {team_key} team.")
-            return None 
+            return None
 
         lineup = []
         for player_id in batting_order_ids:
             player_key = f'ID{player_id}'
             player_details = player_info.get(player_key, {})
-            if not player_details: 
-                print(f"[extract_lineup] Warning: Missing player details for ID {player_id} in {team_key} lineup.")
-                continue 
+            if not player_details:
+                continue
                 
             position = player_details.get('position', {}).get('abbreviation', 'N/A')
             if position == 'P': 

@@ -19,4 +19,4 @@ ENV FLASK_CONFIG=dev \
     PORT=8000 \
     API_KEY_REQUIRED=false
 
-CMD ["gunicorn", "run:app", "--bind", "0.0.0.0:8000", "--reload"]
+CMD ["gunicorn", "run:app", "--bind", "0.0.0.0:8000", "--worker-class", "gthread", "--workers", "2", "--threads", "4", "--timeout", "60", "--graceful-timeout", "15", "--keep-alive", "5", "--reload"]

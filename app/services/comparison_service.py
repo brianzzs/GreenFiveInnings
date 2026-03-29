@@ -41,22 +41,18 @@ async def get_game_comparison(game_id: int, lookback_games: int = 10) -> Dict[st
         home_lineup_status = "Confirmed"
 
         if away_lineup is None:
-            print(f"[Comparison] Away lineup missing for game {game_id}. Fetching last lineup for team {away_team_id}...")
             away_lineup = await schedule_service.get_last_game_lineup(away_team_id)
             if away_lineup is not None:
                 away_lineup_status = "Expected"
             else:
-                print(f"[Comparison] Could not fetch last lineup for away team {away_team_id}.")
                 away_lineup = []
                 away_lineup_status = "Unavailable" 
 
         if home_lineup is None:
-            print(f"[Comparison] Home lineup missing for game {game_id}. Fetching last lineup for team {home_team_id}...")
             home_lineup = await schedule_service.get_last_game_lineup(home_team_id)
             if home_lineup is not None:
                 home_lineup_status = "Expected"
             else:
-                print(f"[Comparison] Could not fetch last lineup for home team {home_team_id}.")
                 home_lineup = []
                 home_lineup_status = "Unavailable" 
 

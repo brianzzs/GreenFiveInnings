@@ -9,6 +9,12 @@ from app.services import player_service
 from app.utils import helpers
 from async_lru import alru_cache
 from app import season_context
+from cache import get_ttl_cache, set_ttl_cache
+
+TEAM_RECORDS_CACHE_KEY = "team_records"
+TODAY_SCHEDULE_CACHE_PREFIX = "today_schedule"
+TEAM_RECORDS_TTL_SECONDS = 120
+TODAY_SCHEDULE_TTL_SECONDS = 30
 
 
 async def fetch_schedule(date, team_id):
@@ -63,9 +69,12 @@ async def fetch_and_cache_game_ids_span(team_id: int, num_days: int = None) -> L
     return [game["game_id"] for game in all_games]
 
 
-@lru_cache(maxsize=1) 
 def _get_team_records_from_standings() -> Dict[int, str]:
     """Fetches current standings and returns a dict mapping team ID to 'W-L' record."""
+    cached_records = get_ttl_cache(TEAM_RECORDS_CACHE_KEY)
+    if cached_records is not None:
+        return cached_records
+
     records = {}
     try:
         standings_data = mlb_stats_client.get_standings(
@@ -84,21 +93,24 @@ def _get_team_records_from_standings() -> Dict[int, str]:
                         records[team_id] = f"{wins}-{losses}"
     except Exception as e:
         print(f"Error parsing standings data: {e}")
-        _get_team_records_from_standings.cache_clear()
         
     if not records:
-        print("Warning: Could not retrieve or parse team records from standings.")
-        _get_team_records_from_standings.cache_clear()
+        return {}
         
-    return records
+    return set_ttl_cache(TEAM_RECORDS_CACHE_KEY, records, TEAM_RECORDS_TTL_SECONDS)
 
 
 def get_today_schedule() -> List[Dict]:
     """Gets the schedule for today, including pitcher info and team records."""
+    today_date = season_context.reference_date()
+    cache_key = f"{TODAY_SCHEDULE_CACHE_PREFIX}:{today_date.isoformat()}"
+    cached_schedule = get_ttl_cache(cache_key)
+    if cached_schedule is not None:
+        return cached_schedule
+
     processed_games = []
     try:
         team_records = _get_team_records_from_standings()
-        today_date = season_context.reference_date()
         today_date_str = today_date.strftime("%Y-%m-%d")
         include_completed_games = today_date < datetime.date.today()
         raw_games = mlb_stats_client.get_schedule(
@@ -126,8 +138,7 @@ def get_today_schedule() -> List[Dict]:
                     game_time_local = game_time_utc.astimezone(pytz.timezone('America/New_York'))
                     if game_time_local.date() != today_date:
                         continue
-                except Exception as e:
-                    print(f"[get_today_schedule] Error converting game time: {e}")
+                except Exception:
                     continue
 
                 away_record_str = team_records.get(away_id, "0-0") 
@@ -153,7 +164,7 @@ def get_today_schedule() -> List[Dict]:
             except Exception as inner_e:
                  print(f"[get_today_schedule] Error processing game data: {game}. Error: {inner_e}")
 
-        return processed_games
+        return set_ttl_cache(cache_key, processed_games, TODAY_SCHEDULE_TTL_SECONDS)
     except Exception as e:
         print(f"[get_today_schedule] Error fetching or processing today's schedule: {e}")
         return []
@@ -242,7 +253,6 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
     try:
         team_records = _get_team_records_from_standings()
 
-        print(f"[get_next_game_schedule] Checking today ({formatted_today}) for team {team_id}")
         todays_games = mlb_stats_client.get_schedule(
             start_date=formatted_today,
             end_date=formatted_today,
@@ -286,11 +296,7 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
 
                 except Exception as inner_e:
                     print(f"[get_next_game_schedule] Error processing game data (today): {game}. Error: {inner_e}")
-        else:
-             print(f"[get_next_game_schedule] No games found for team {team_id} today.")
-
         if not games_with_pitcher_info:
-            print(f"[get_next_game_schedule] No upcoming games found today, checking tomorrow...")
             next_date = base_date + datetime.timedelta(days=1)
             formatted_tomorrow = next_date.strftime(date_format)
             tomorrows_games = mlb_stats_client.get_schedule(
@@ -334,12 +340,6 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
 
                     except Exception as inner_e:
                         print(f"[get_next_game_schedule] Error processing game data (tomorrow): {game}. Error: {inner_e}")
-            else:
-                 print(f"[get_next_game_schedule] No games found for team {team_id} tomorrow either.")
-
-        if not games_with_pitcher_info:
-             print(f"[get_next_game_schedule] Final result: No upcoming games found for team {team_id} today or tomorrow.")
-             
         return games_with_pitcher_info
 
     except Exception as e:
@@ -412,9 +412,6 @@ async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[
             print(f"[fetch_last_n_completed_game_ids] Error fetching schedule chunk for team {team_id}: {e}")
             break 
 
-    if not completed_games:
-        print(f"[fetch_last_n_completed_game_ids] No completed R or S games found for team {team_id} since {year_start_date}.")
-
     return [game['game_id'] for game in completed_games[:num_games]]
 
 
@@ -424,15 +421,12 @@ async def get_last_game_lineup(team_id: int) -> Optional[List[Dict]]:
     try:
         last_game_id_list = await fetch_last_n_completed_game_ids(team_id, 1)
         if not last_game_id_list:
-            print(f"[get_last_game_lineup] No recent completed games found for team {team_id}.")
             return None
         
         last_game_id = last_game_id_list[0]
-        print(f"[get_last_game_lineup] Found last game ID {last_game_id} for team {team_id}. Fetching data...")
         
         raw_game_data = await mlb_stats_client.get_game_data_async(last_game_id)
         if not raw_game_data or 'liveData' not in raw_game_data or 'boxscore' not in raw_game_data['liveData']:
-            print(f"[get_last_game_lineup] Missing liveData/boxscore for game {last_game_id}.")
             return None
             
         game_data = raw_game_data.get('gameData', {})
@@ -444,18 +438,10 @@ async def get_last_game_lineup(team_id: int) -> Optional[List[Dict]]:
             team_key = 'home'
             
         if not team_key:
-            print(f"[get_last_game_lineup] Could not determine home/away status for team {team_id} in game {last_game_id}.")
             return None
 
         boxscore_data = raw_game_data['liveData']['boxscore']
-        last_lineup = helpers.extract_lineup(boxscore_data, team_key)
-        
-        if last_lineup:
-            print(f"[get_last_game_lineup] Successfully extracted lineup for team {team_id} from game {last_game_id}.")
-        else:
-            print(f"[get_last_game_lineup] Failed to extract lineup for team {team_id} from game {last_game_id}.")
-            
-        return last_lineup
+        return helpers.extract_lineup(boxscore_data, team_key)
 
     except Exception as e:
         print(f"[get_last_game_lineup] Error fetching last lineup for team {team_id}: {e}")
