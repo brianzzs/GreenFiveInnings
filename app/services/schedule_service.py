@@ -11,10 +11,15 @@ from async_lru import alru_cache
 from app import season_context
 from cache import get_ttl_cache, set_ttl_cache
 
-TEAM_RECORDS_CACHE_KEY = "team_records"
+COMPLETED_GAME_STATUSES = {"Final", "Game Over", "Completed Early"}
+TEAM_LOGO_URL_TEMPLATE = "https://www.mlbstatic.com/team-logos/{team_id}.svg"
+TEAM_RECORDS_CACHE_PREFIX = "team_records"
 TODAY_SCHEDULE_CACHE_PREFIX = "today_schedule"
+YESTERDAY_RESULTS_CACHE_PREFIX = "yesterday_results"
+COMPLETED_RESULTS_CACHE_PREFIX = "completed_results"
 TEAM_RECORDS_TTL_SECONDS = 120
 TODAY_SCHEDULE_TTL_SECONDS = 30
+YESTERDAY_RESULTS_TTL_SECONDS = 300
 
 
 async def fetch_schedule(date, team_id):
@@ -69,9 +74,103 @@ async def fetch_and_cache_game_ids_span(team_id: int, num_days: int = None) -> L
     return [game["game_id"] for game in all_games]
 
 
-def _get_team_records_from_standings() -> Dict[int, str]:
+def _build_team_logo_url(team_id: int) -> str:
+    return TEAM_LOGO_URL_TEMPLATE.format(team_id=team_id)
+
+
+def _build_completed_game_payload(
+    game: Dict[str, Any],
+    team_records: Dict[int, str],
+    default_game_date: str,
+) -> Optional[Dict[str, Any]]:
+    game_status = game.get("status")
+    if game_status not in COMPLETED_GAME_STATUSES:
+        return None
+
+    game_id = game.get("game_id")
+    home_id = game.get("home_id")
+    away_id = game.get("away_id")
+    home_runs = game.get("home_score")
+    away_runs = game.get("away_score")
+
+    if (
+        not game_id
+        or not home_id
+        or not away_id
+        or home_runs is None
+        or away_runs is None
+    ):
+        return None
+
+    return {
+        "game_id": game_id,
+        "game_date": game.get("game_date", default_game_date),
+        "game_datetime": game.get("game_datetime"),
+        "status": game_status,
+        "away_team": {
+            "id": away_id,
+            "name": game.get("away_name"),
+            "record": team_records.get(away_id, "0-0"),
+            "logo_url": _build_team_logo_url(away_id),
+            "runs": away_runs,
+        },
+        "home_team": {
+            "id": home_id,
+            "name": game.get("home_name"),
+            "record": team_records.get(home_id, "0-0"),
+            "logo_url": _build_team_logo_url(home_id),
+            "runs": home_runs,
+        },
+    }
+
+
+def _get_completed_results_for_date(
+    target_date: datetime.date,
+    cache_prefix: str = COMPLETED_RESULTS_CACHE_PREFIX,
+) -> List[Dict[str, Any]]:
+    target_date_str = target_date.strftime("%Y-%m-%d")
+    cache_key = f"{cache_prefix}:{target_date.isoformat()}"
+    cached_results = get_ttl_cache(cache_key)
+    if cached_results is not None:
+        return cached_results
+
+    processed_games = []
+
+    try:
+        team_records = _get_team_records_from_standings(target_date)
+        raw_games = mlb_stats_client.get_schedule(
+            start_date=target_date_str,
+            end_date=target_date_str,
+        )
+        if not raw_games:
+            return set_ttl_cache(cache_key, [], YESTERDAY_RESULTS_TTL_SECONDS)
+
+        for game in raw_games:
+            try:
+                processed_game = _build_completed_game_payload(
+                    game=game,
+                    team_records=team_records,
+                    default_game_date=target_date_str,
+                )
+                if processed_game is not None:
+                    processed_games.append(processed_game)
+            except Exception as inner_e:
+                print(f"[_get_completed_results_for_date] Error processing game data: {game}. Error: {inner_e}")
+
+        processed_games.sort(key=lambda game: game.get("game_datetime") or "")
+        return set_ttl_cache(cache_key, processed_games, YESTERDAY_RESULTS_TTL_SECONDS)
+    except Exception as e:
+        print(f"[_get_completed_results_for_date] Error fetching completed results for {target_date_str}: {e}")
+        return []
+
+
+def _get_team_records_from_standings(
+    standings_date: Optional[datetime.date] = None,
+) -> Dict[int, str]:
     """Fetches current standings and returns a dict mapping team ID to 'W-L' record."""
-    cached_records = get_ttl_cache(TEAM_RECORDS_CACHE_KEY)
+    effective_date = standings_date or season_context.reference_date()
+    cache_key = f"{TEAM_RECORDS_CACHE_PREFIX}:{effective_date.isoformat()}"
+    cached_records = get_ttl_cache(cache_key)
     if cached_records is not None:
         return cached_records
 
@@ -79,8 +178,8 @@ def _get_team_records_from_standings() -> Dict[int, str]:
     try:
         standings_data = mlb_stats_client.get_standings(
             league_id="103,104",
-            date=season_context.standings_date_str(),
-            season=season_context.active_season_year(),
+            date=effective_date.strftime("%Y-%m-%d"),
+            season=season_context.active_season_year(effective_date),
         )
         
         for division_id, division_data in standings_data.items():
@@ -96,8 +195,31 @@ def _get_team_records_from_standings() -> Dict[int, str]:
         
     if not records:
         return {}
-        
-    return set_ttl_cache(TEAM_RECORDS_CACHE_KEY, records, TEAM_RECORDS_TTL_SECONDS)
+
+    return set_ttl_cache(cache_key, records, TEAM_RECORDS_TTL_SECONDS)
+
+
+def get_yesterday_results() -> List[Dict[str, Any]]:
+    """Gets completed MLB results for yesterday with team logos and records."""
+    yesterday_date = season_context.reference_date() - datetime.timedelta(days=1)
+    return _get_completed_results_for_date(
+        yesterday_date,
+        cache_prefix=YESTERDAY_RESULTS_CACHE_PREFIX,
+    )
+
+
+def get_recent_results() -> Dict[str, List[Dict[str, Any]]]:
+    """Gets completed MLB results for today and yesterday."""
+    today_date = season_context.reference_date()
+    yesterday_date = today_date - datetime.timedelta(days=1)
+
+    return {
+        "today": _get_completed_results_for_date(today_date),
+        "yesterday": _get_completed_results_for_date(
+            yesterday_date,
+            cache_prefix=YESTERDAY_RESULTS_CACHE_PREFIX,
+        ),
+    }
 
 
 def get_today_schedule() -> List[Dict]:
@@ -129,7 +251,7 @@ def get_today_schedule() -> List[Dict]:
 
                 if not game_id or not home_id or not away_id:
                     continue
-                if not include_completed_games and game_status in ["Final", "Game Over", "Completed Early"]:
+                if not include_completed_games and game_status in COMPLETED_GAME_STATUSES:
                     continue
 
                 try:
@@ -270,7 +392,7 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
 
                     game_status = game.get("status")
                     # Skip games that are already finished
-                    if not include_completed_games and game_status in ["Final", "Game Over", "Completed Early"]:
+                    if not include_completed_games and game_status in COMPLETED_GAME_STATUSES:
                         continue
 
                     away_record_str = team_records.get(away_id, "0-0")
@@ -315,7 +437,7 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
                             continue
 
                         game_status = game.get("status")
-                        if not include_completed_games and game_status in ["Final", "Game Over", "Completed Early"]:
+                        if not include_completed_games and game_status in COMPLETED_GAME_STATUSES:
                             continue
                         
                         away_record_str = team_records.get(away_id, "0-0")
@@ -392,7 +514,7 @@ async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[
                 game_type = game.get('game_type')
                 game_id = game.get('game_id')
                 if (
-                    game_status in ["Final", "Game Over", "Completed Early"]
+                    game_status in COMPLETED_GAME_STATUSES
                     and game_type in ['R', 'S']
                     and game_id
                     and game_id not in seen_game_ids

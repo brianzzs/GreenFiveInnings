@@ -11,6 +11,12 @@ def today_schedule_route():
     """Gets the schedule for today, including pitcher info."""
     return jsonify(schedule_service.get_today_schedule())
 
+
+@schedule_bp.route('/recent_results', methods=['GET'])
+def recent_results_route():
+    """Gets completed results for today and yesterday."""
+    return jsonify(schedule_service.get_recent_results())
+
 @schedule_bp.route('/schedule/<int:team_id>', methods=['GET'])
 @lru_cache(maxsize=128)
 def get_schedule_route(team_id):
