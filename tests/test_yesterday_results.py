@@ -79,17 +79,17 @@ class YesterdayResultsServiceTests(unittest.TestCase):
 
         results = schedule_service.get_yesterday_results()
 
-        self.assertEqual([game["game_id"] for game in results], [1, 2])
-        self.assertEqual(results[0]["away_team"]["record"], "1-2")
-        self.assertEqual(results[0]["home_team"]["record"], "2-1")
+        self.assertEqual([game["game_id"] for game in results], [2, 1])
+        self.assertEqual(results[1]["away_team"]["record"], "1-2")
+        self.assertEqual(results[1]["home_team"]["record"], "2-1")
         self.assertEqual(
-            results[0]["away_team"]["logo_url"],
+            results[1]["away_team"]["logo_url"],
             "https://www.mlbstatic.com/team-logos/142.svg",
         )
-        self.assertEqual(results[0]["away_team"]["runs"], 6)
-        self.assertEqual(results[0]["home_team"]["runs"], 8)
-        self.assertEqual(results[1]["home_team"]["name"], "BOS Red Sox")
-        self.assertEqual(results[1]["status"], "Final")
+        self.assertEqual(results[1]["away_team"]["runs"], 6)
+        self.assertEqual(results[1]["home_team"]["runs"], 8)
+        self.assertEqual(results[0]["home_team"]["name"], "BOS Red Sox")
+        self.assertEqual(results[0]["status"], "Final")
 
     @patch("app.services.schedule_service.season_context.reference_date")
     @patch("app.services.schedule_service.mlb_stats_client.get_standings")

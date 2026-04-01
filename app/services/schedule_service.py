@@ -157,7 +157,10 @@ def _get_completed_results_for_date(
             except Exception as inner_e:
                 print(f"[_get_completed_results_for_date] Error processing game data: {game}. Error: {inner_e}")
 
-        processed_games.sort(key=lambda game: game.get("game_datetime") or "")
+        processed_games.sort(
+            key=lambda game: game.get("game_datetime") or "",
+            reverse=True,
+        )
         return set_ttl_cache(cache_key, processed_games, YESTERDAY_RESULTS_TTL_SECONDS)
     except Exception as e:
         print(f"[_get_completed_results_for_date] Error fetching completed results for {target_date_str}: {e}")
