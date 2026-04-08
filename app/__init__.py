@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+
+from app.api import league
 from .config import config_by_name
 import os
 import secrets
@@ -9,7 +11,7 @@ from typing import Optional
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-
+from .api.league import league_bp
 from .api.schedule import schedule_bp
 from .api.player import player_bp
 from .api.teams import teams_bp
@@ -105,7 +107,7 @@ def create_app(config_name='default'):
     app.register_blueprint(player_bp) 
     app.register_blueprint(teams_bp) 
     app.register_blueprint(comparison_bp)
-
+    app.register_blueprint(league_bp)
     @app.route('/')
     def index():
         return "API is running!" 

@@ -37,4 +37,13 @@ async def get_stats_batch_route(team_id: int, num_games: int):
     if isinstance(stats_summary, dict) and stats_summary.get("error"):
         return jsonify(stats_summary), 500
         
-    return jsonify(stats_summary) 
+    return jsonify(stats_summary)
+
+
+@schedule_bp.route('/team-full-stats/<int:team_id>/<int:num_games>', methods=['GET'])
+async def get_full_stats_summary(team_id: int, num_games: int):
+    stats_summary = await game_service.get_team_stats_full_gamesummary(team_id, num_games, include_details=True)
+    if isinstance(stats_summary, dict) and stats_summary.get("error"):
+        return jsonify(stats_summary), 500
+    
+    return jsonify(stats_summary)

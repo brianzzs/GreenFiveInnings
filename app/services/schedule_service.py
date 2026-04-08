@@ -1,6 +1,10 @@
 import asyncio
 import datetime
+from logging import debug
 from typing import Dict, List, Any, Optional
+
+from flask import jsonify
+import statsapi
 from app.clients import mlb_stats_client
 from cache import SCHEDULE_CACHE 
 import pytz
@@ -30,6 +34,12 @@ async def fetch_schedule(date, team_id):
         end_date=date["end_date"],
         team_id=team_id,
     )
+
+
+def get_standings():
+    standings_data = statsapi.standings_data()
+    print(standings_data[201])
+    return standings_data
 
 async def fetch_and_cache_game_ids_span(team_id: int, num_days: int = None) -> List[int]:
     """
