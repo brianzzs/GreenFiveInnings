@@ -16,6 +16,7 @@ from .api.schedule import schedule_bp
 from .api.player import player_bp
 from .api.teams import teams_bp
 from .api.comparison import comparison_bp
+from .api.park_factors import park_factors_bp
 
 def create_app(config_name='default'): 
     """Flask application factory pattern."""
@@ -107,6 +108,7 @@ def create_app(config_name='default'):
     app.register_blueprint(player_bp) 
     app.register_blueprint(teams_bp) 
     app.register_blueprint(comparison_bp)
+    app.register_blueprint(park_factors_bp)
     app.register_blueprint(league_bp)
     @app.route('/')
     def index():
