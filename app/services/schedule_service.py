@@ -6,10 +6,10 @@ from typing import Dict, List, Any, Optional
 from flask import jsonify
 import statsapi
 from app.clients import mlb_stats_client
-from cache import SCHEDULE_CACHE 
+from cache import SCHEDULE_CACHE
 import pytz
 from functools import lru_cache
-from app.services import player_service 
+from app.services import player_service
 from app.utils import helpers
 from async_lru import alru_cache
 from app import season_context
@@ -23,7 +23,7 @@ YESTERDAY_RESULTS_CACHE_PREFIX = "yesterday_results"
 COMPLETED_RESULTS_CACHE_PREFIX = "completed_results"
 TEAM_RECORDS_TTL_SECONDS = 120
 TODAY_SCHEDULE_TTL_SECONDS = 30
-YESTERDAY_RESULTS_TTL_SECONDS = 300
+YESTERDAY_RESULTS_TTL_SECONDS = 10800
 
 
 async def fetch_schedule(date, team_id):
@@ -41,7 +41,10 @@ def get_standings():
     print(standings_data[201])
     return standings_data
 
-async def fetch_and_cache_game_ids_span(team_id: int, num_days: int = None) -> List[int]:
+
+async def fetch_and_cache_game_ids_span(
+    team_id: int, num_days: int = None
+) -> List[int]:
     """
     Fetches game IDs for a specified team over a span of days, utilizing cache.
     Args:
@@ -53,7 +56,7 @@ async def fetch_and_cache_game_ids_span(team_id: int, num_days: int = None) -> L
     cache_key = f"{team_id}_{num_days}"
     if cache_key in SCHEDULE_CACHE:
         return [game["game_id"] for game in SCHEDULE_CACHE[cache_key]]
-    
+
     base_date = season_context.reference_date()
     date_format = "%m/%d/%Y"
     all_games = []
@@ -74,13 +77,13 @@ async def fetch_and_cache_game_ids_span(team_id: int, num_days: int = None) -> L
             current_date = end_date + datetime.timedelta(days=1)
 
         tasks = [fetch_schedule(date_info, team_id) for date_info in dates_to_fetch]
-        
+
         results = await asyncio.gather(*tasks)
         for games_chunk in results:
             all_games.extend(games_chunk)
 
     SCHEDULE_CACHE[cache_key] = all_games
-    
+
     return [game["game_id"] for game in all_games]
 
 
@@ -165,7 +168,9 @@ def _get_completed_results_for_date(
                 if processed_game is not None:
                     processed_games.append(processed_game)
             except Exception as inner_e:
-                print(f"[_get_completed_results_for_date] Error processing game data: {game}. Error: {inner_e}")
+                print(
+                    f"[_get_completed_results_for_date] Error processing game data: {game}. Error: {inner_e}"
+                )
 
         processed_games.sort(
             key=lambda game: game.get("game_datetime") or "",
@@ -173,7 +178,9 @@ def _get_completed_results_for_date(
         )
         return set_ttl_cache(cache_key, processed_games, YESTERDAY_RESULTS_TTL_SECONDS)
     except Exception as e:
-        print(f"[_get_completed_results_for_date] Error fetching completed results for {target_date_str}: {e}")
+        print(
+            f"[_get_completed_results_for_date] Error fetching completed results for {target_date_str}: {e}"
+        )
         return []
 
 
@@ -194,18 +201,18 @@ def _get_team_records_from_standings(
             date=effective_date.strftime("%Y-%m-%d"),
             season=season_context.active_season_year(effective_date),
         )
-        
+
         for division_id, division_data in standings_data.items():
-            if isinstance(division_data, dict) and 'teams' in division_data:
-                for team_standings in division_data['teams']:
-                    team_id = team_standings.get('team_id')
-                    wins = team_standings.get('w')
-                    losses = team_standings.get('l')
+            if isinstance(division_data, dict) and "teams" in division_data:
+                for team_standings in division_data["teams"]:
+                    team_id = team_standings.get("team_id")
+                    wins = team_standings.get("w")
+                    losses = team_standings.get("l")
                     if team_id is not None and wins is not None and losses is not None:
                         records[team_id] = f"{wins}-{losses}"
     except Exception as e:
         print(f"Error parsing standings data: {e}")
-        
+
     if not records:
         return {}
 
@@ -248,15 +255,13 @@ def get_today_schedule() -> List[Dict]:
         team_records = _get_team_records_from_standings()
         today_date_str = today_date.strftime("%Y-%m-%d")
         include_completed_games = today_date < datetime.date.today()
-        raw_games = mlb_stats_client.get_schedule(
-            start_date=today_date_str
-        )
+        raw_games = mlb_stats_client.get_schedule(start_date=today_date_str)
         if not raw_games:
             return []
 
         for game in raw_games:
             try:
-                game_status = game.get("status") 
+                game_status = game.get("status")
                 game_id = game.get("game_id")
                 home_id = game.get("home_id")
                 away_id = game.get("away_id")
@@ -264,20 +269,27 @@ def get_today_schedule() -> List[Dict]:
 
                 if not game_id or not home_id or not away_id:
                     continue
-                if not include_completed_games and game_status in COMPLETED_GAME_STATUSES:
+                if (
+                    not include_completed_games
+                    and game_status in COMPLETED_GAME_STATUSES
+                ):
                     continue
 
                 try:
-                    game_time_utc = datetime.datetime.strptime(game_time_utc_str, "%Y-%m-%dT%H:%M:%SZ")
+                    game_time_utc = datetime.datetime.strptime(
+                        game_time_utc_str, "%Y-%m-%dT%H:%M:%SZ"
+                    )
                     game_time_utc = pytz.UTC.localize(game_time_utc)
-                    game_time_local = game_time_utc.astimezone(pytz.timezone('America/New_York'))
+                    game_time_local = game_time_utc.astimezone(
+                        pytz.timezone("America/New_York")
+                    )
                     if game_time_local.date() != today_date:
                         continue
                 except Exception:
                     continue
 
-                away_record_str = team_records.get(away_id, "0-0") 
-                home_record_str = team_records.get(home_id, "0-0") 
+                away_record_str = team_records.get(away_id, "0-0")
+                home_record_str = team_records.get(home_id, "0-0")
 
                 pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
 
@@ -285,30 +297,35 @@ def get_today_schedule() -> List[Dict]:
                     "game_id": game_id,
                     "home_team_id": home_id,
                     "home_team_name": game.get("home_name"),
-                    "home_team_record": home_record_str, 
+                    "home_team_record": home_record_str,
                     "away_team_id": away_id,
                     "away_team_name": game.get("away_name"),
-                    "away_team_record": away_record_str, 
+                    "away_team_record": away_record_str,
                     "status": game_status,
-                    "game_datetime": game_time_utc_str, 
-                    "venue": game.get("venue_name", "TBD"), 
-                    **pitcher_info
+                    "game_datetime": game_time_utc_str,
+                    "venue": game.get("venue_name", "TBD"),
+                    **pitcher_info,
                 }
                 processed_games.append(processed_game)
 
             except Exception as inner_e:
-                 print(f"[get_today_schedule] Error processing game data: {game}. Error: {inner_e}")
+                print(
+                    f"[get_today_schedule] Error processing game data: {game}. Error: {inner_e}"
+                )
 
         return set_ttl_cache(cache_key, processed_games, TODAY_SCHEDULE_TTL_SECONDS)
     except Exception as e:
-        print(f"[get_today_schedule] Error fetching or processing today's schedule: {e}")
+        print(
+            f"[get_today_schedule] Error fetching or processing today's schedule: {e}"
+        )
         return []
+
 
 @lru_cache(maxsize=1)
 def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
     """Gets historical schedule for a team up to num_days ago, including pitcher info and team records."""
     base_date = season_context.reference_date()
-    date_format = "%Y-%m-%d" 
+    date_format = "%Y-%m-%d"
 
     if num_days is not None:
         start_date = base_date - datetime.timedelta(days=num_days)
@@ -319,35 +336,39 @@ def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
     formatted_end_date = base_date.strftime(date_format)
 
     try:
-        team_records = _get_team_records_from_standings() 
+        team_records = _get_team_records_from_standings()
         schedule_summary = mlb_stats_client.get_schedule(
-            start_date=formatted_start_date, 
-            end_date=formatted_end_date, 
-            team_id=team_id
+            start_date=formatted_start_date,
+            end_date=formatted_end_date,
+            team_id=team_id,
         )
 
         if not schedule_summary:
             next_day_start = base_date + datetime.timedelta(days=1)
             formatted_next_start = next_day_start.strftime(date_format)
             schedule_summary = mlb_stats_client.get_schedule(
-                start_date=formatted_next_start, 
-                end_date=formatted_next_start, 
-                team_id=team_id
+                start_date=formatted_next_start,
+                end_date=formatted_next_start,
+                team_id=team_id,
             )
             if not schedule_summary:
                 return []
 
         games_with_pitcher_info = []
-        for game in schedule_summary: 
+        for game in schedule_summary:
             try:
                 game_id = game.get("game_id")
                 home_id = game.get("home_id")
                 away_id = game.get("away_id")
                 if not game_id or not home_id or not away_id:
                     continue
-                
-                away_record_str = team_records.get(away_id, "0-0") # Default if lookup fails
-                home_record_str = team_records.get(home_id, "0-0") # Default if lookup fails
+
+                away_record_str = team_records.get(
+                    away_id, "0-0"
+                )  # Default if lookup fails
+                home_record_str = team_records.get(
+                    home_id, "0-0"
+                )  # Default if lookup fails
 
                 pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
                 game_time_utc_str = game.get("game_datetime")
@@ -355,25 +376,28 @@ def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
                     "game_id": game_id,
                     "home_team_id": home_id,
                     "home_team_name": game.get("home_name"),
-                    "home_team_record": home_record_str, 
+                    "home_team_record": home_record_str,
                     "away_team_id": away_id,
                     "away_team_name": game.get("away_name"),
-                    "away_team_record": away_record_str, 
+                    "away_team_record": away_record_str,
                     "status": game.get("status"),
                     "game_datetime": game_time_utc_str,
                     "venue": game.get("venue_name", "TBD"),
-                    **pitcher_info 
+                    **pitcher_info,
                 }
                 games_with_pitcher_info.append(processed_game)
 
             except Exception as inner_e:
-                 print(f"[get_schedule_for_team] Error processing game data: {game}. Error: {inner_e}")
+                print(
+                    f"[get_schedule_for_team] Error processing game data: {game}. Error: {inner_e}"
+                )
 
         return games_with_pitcher_info
 
     except Exception as e:
         print(f"[get_schedule_for_team] Error getting schedule for team {team_id}: {e}")
         return []
+
 
 @lru_cache(maxsize=128)
 def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
@@ -383,15 +407,13 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
     formatted_today = base_date.strftime(date_format)
     include_completed_games = base_date < datetime.date.today()
     team_param = team_id if team_id != 0 else None
-    games_with_pitcher_info = [] 
+    games_with_pitcher_info = []
 
     try:
         team_records = _get_team_records_from_standings()
 
         todays_games = mlb_stats_client.get_schedule(
-            start_date=formatted_today,
-            end_date=formatted_today,
-            team_id=team_param
+            start_date=formatted_today, end_date=formatted_today, team_id=team_param
         )
 
         if todays_games:
@@ -405,7 +427,10 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
 
                     game_status = game.get("status")
                     # Skip games that are already finished
-                    if not include_completed_games and game_status in COMPLETED_GAME_STATUSES:
+                    if (
+                        not include_completed_games
+                        and game_status in COMPLETED_GAME_STATUSES
+                    ):
                         continue
 
                     away_record_str = team_records.get(away_id, "0-0")
@@ -424,22 +449,23 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
                         "status": game_status,
                         "game_datetime": game_time_utc_str,
                         "venue": game.get("venue_name", "TBD"),
-                        **pitcher_info
+                        **pitcher_info,
                     }
                     games_with_pitcher_info.append(processed_game)
 
-
                 except Exception as inner_e:
-                    print(f"[get_next_game_schedule] Error processing game data (today): {game}. Error: {inner_e}")
+                    print(
+                        f"[get_next_game_schedule] Error processing game data (today): {game}. Error: {inner_e}"
+                    )
         if not games_with_pitcher_info:
             next_date = base_date + datetime.timedelta(days=1)
             formatted_tomorrow = next_date.strftime(date_format)
             tomorrows_games = mlb_stats_client.get_schedule(
                 start_date=formatted_tomorrow,
                 end_date=formatted_tomorrow,
-                team_id=team_param
+                team_id=team_param,
             )
-            
+
             if tomorrows_games:
                 for game in tomorrows_games:
                     try:
@@ -450,36 +476,46 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
                             continue
 
                         game_status = game.get("status")
-                        if not include_completed_games and game_status in COMPLETED_GAME_STATUSES:
+                        if (
+                            not include_completed_games
+                            and game_status in COMPLETED_GAME_STATUSES
+                        ):
                             continue
-                        
+
                         away_record_str = team_records.get(away_id, "0-0")
                         home_record_str = team_records.get(home_id, "0-0")
-                        pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
+                        pitcher_info = player_service.fetch_and_cache_pitcher_info(
+                            game_id
+                        )
                         game_time_utc_str = game.get("game_datetime")
 
                         processed_game = {
-                             "game_id": game_id,
-                             "home_team_id": home_id,
-                             "home_team_name": game.get("home_name"),
-                             "home_team_record": home_record_str,
-                             "away_team_id": away_id,
-                             "away_team_name": game.get("away_name"),
-                             "away_team_record": away_record_str,
-                             "status": game_status,
-                             "game_datetime": game_time_utc_str,
-                             "venue": game.get("venue_name", "TBD"),
-                             **pitcher_info
+                            "game_id": game_id,
+                            "home_team_id": home_id,
+                            "home_team_name": game.get("home_name"),
+                            "home_team_record": home_record_str,
+                            "away_team_id": away_id,
+                            "away_team_name": game.get("away_name"),
+                            "away_team_record": away_record_str,
+                            "status": game_status,
+                            "game_datetime": game_time_utc_str,
+                            "venue": game.get("venue_name", "TBD"),
+                            **pitcher_info,
                         }
                         games_with_pitcher_info.append(processed_game)
 
                     except Exception as inner_e:
-                        print(f"[get_next_game_schedule] Error processing game data (tomorrow): {game}. Error: {inner_e}")
+                        print(
+                            f"[get_next_game_schedule] Error processing game data (tomorrow): {game}. Error: {inner_e}"
+                        )
         return games_with_pitcher_info
 
     except Exception as e:
-        print(f"[get_next_game_schedule] Error getting next game schedule for team {team_id}: {e}")
+        print(
+            f"[get_next_game_schedule] Error getting next game schedule for team {team_id}: {e}"
+        )
         return []
+
 
 async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[int]:
     """
@@ -501,53 +537,54 @@ async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[
     current_year = int(season_context.active_season_year())
     year_start_date = datetime.date(current_year, 1, 1)
     end_date = season_context.reference_date()
-    days_to_check_increment = 15 
+    days_to_check_increment = 15
     total_days_checked = 0
     date_format = "%Y-%m-%d"
 
     while len(completed_games) < num_games and end_date >= year_start_date:
-        start_date = max(end_date - datetime.timedelta(days=days_to_check_increment -1), year_start_date)
+        start_date = max(
+            end_date - datetime.timedelta(days=days_to_check_increment - 1),
+            year_start_date,
+        )
         start_date_str = start_date.strftime(date_format)
         end_date_str = end_date.strftime(date_format)
-        
-        # Prevent infinite loop if start/end date become the same at year boundary
-        if start_date == end_date and total_days_checked > 0: 
-             break
 
+        # Prevent infinite loop if start/end date become the same at year boundary
+        if start_date == end_date and total_days_checked > 0:
+            break
 
         try:
             schedule_chunk = await mlb_stats_client.get_schedule_async(
-                team_id=team_id,
-                start_date=start_date_str,
-                end_date=end_date_str
+                team_id=team_id, start_date=start_date_str, end_date=end_date_str
             )
 
             for game in schedule_chunk:
-                game_status = game.get('status')
-                game_type = game.get('game_type')
-                game_id = game.get('game_id')
+                game_status = game.get("status")
+                game_type = game.get("game_type")
+                game_id = game.get("game_id")
                 if (
                     game_status in COMPLETED_GAME_STATUSES
-                    and game_type in ['R', 'S']
+                    and game_type in ["R", "S"]
                     and game_id
                     and game_id not in seen_game_ids
                 ):
                     seen_game_ids.add(game_id)
-                    completed_games.append({
-                        'game_id': game_id,
-                        'game_datetime': game['game_datetime']
-                    })
+                    completed_games.append(
+                        {"game_id": game_id, "game_datetime": game["game_datetime"]}
+                    )
 
-            completed_games.sort(key=lambda x: x['game_datetime'], reverse=True)
+            completed_games.sort(key=lambda x: x["game_datetime"], reverse=True)
 
             end_date = start_date - datetime.timedelta(days=1)
-            total_days_checked += (end_date - start_date).days + 1 
+            total_days_checked += (end_date - start_date).days + 1
 
         except Exception as e:
-            print(f"[fetch_last_n_completed_game_ids] Error fetching schedule chunk for team {team_id}: {e}")
-            break 
+            print(
+                f"[fetch_last_n_completed_game_ids] Error fetching schedule chunk for team {team_id}: {e}"
+            )
+            break
 
-    return [game['game_id'] for game in completed_games[:num_games]]
+    return [game["game_id"] for game in completed_games[:num_games]]
 
 
 @alru_cache(maxsize=128)
@@ -557,29 +594,36 @@ async def get_last_game_lineup(team_id: int) -> Optional[List[Dict]]:
         last_game_id_list = await fetch_last_n_completed_game_ids(team_id, 1)
         if not last_game_id_list:
             return None
-        
+
         last_game_id = last_game_id_list[0]
-        
+
         raw_game_data = await mlb_stats_client.get_game_data_async(last_game_id)
-        if not raw_game_data or 'liveData' not in raw_game_data or 'boxscore' not in raw_game_data['liveData']:
+        if (
+            not raw_game_data
+            or "liveData" not in raw_game_data
+            or "boxscore" not in raw_game_data["liveData"]
+        ):
             return None
-            
-        game_data = raw_game_data.get('gameData', {})
-        teams_info = game_data.get('teams', {})
+
+        game_data = raw_game_data.get("gameData", {})
+        teams_info = game_data.get("teams", {})
         team_key = None
-        if teams_info.get('away', {}).get('id') == team_id:
-            team_key = 'away'
-        elif teams_info.get('home', {}).get('id') == team_id:
-            team_key = 'home'
-            
+        if teams_info.get("away", {}).get("id") == team_id:
+            team_key = "away"
+        elif teams_info.get("home", {}).get("id") == team_id:
+            team_key = "home"
+
         if not team_key:
             return None
 
-        boxscore_data = raw_game_data['liveData']['boxscore']
+        boxscore_data = raw_game_data["liveData"]["boxscore"]
         return helpers.extract_lineup(boxscore_data, team_key)
 
     except Exception as e:
-        print(f"[get_last_game_lineup] Error fetching last lineup for team {team_id}: {e}")
+        print(
+            f"[get_last_game_lineup] Error fetching last lineup for team {team_id}: {e}"
+        )
         import traceback
+
         traceback.print_exc()
         return None

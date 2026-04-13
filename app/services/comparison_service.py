@@ -170,8 +170,8 @@ def _build_comparison_response(
     return {
         "game_info": {
             "game_id": ctx["game_id"],
-            "game_datetime": datetime_info.get("officialDate")
-            or datetime_info.get("dateTime"),
+            "game_datetime": datetime_info.get("dateTime")
+            or datetime_info.get("officialDate"),
             "status": ctx["status_info"].get("abstractGameState", "Unknown"),
             "venue": ctx["venue_info"].get("name", "TBD"),
             "away_team": {
