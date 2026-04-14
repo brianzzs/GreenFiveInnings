@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import math
 from typing import Any, Optional
@@ -551,7 +552,30 @@ def _build_game_response(
     }
 
 
-def get_today_park_factors() -> dict[str, Any]:
+async def _fetch_weather_for_game(
+    game: dict[str, Any],
+    park: dict[str, Any],
+    today_date: datetime.date,
+) -> tuple[dict[str, Any], Optional[dict[str, Any]], str]:
+    game_id = game.get("game_id")
+    weather = None
+    roof_status_assumption = "open" if park["roof_type"] != "fixed_dome" else "closed"
+    try:
+        forecast = await weather_client.get_forecast_for_park(
+            park["lat"],
+            park["lon"],
+            today_date,
+        )
+        weather = _select_first_pitch_weather(forecast, game.get("game_datetime"))
+        roof_status_assumption = _determine_roof_status(park, weather)
+    except Exception as error:
+        print(
+            f"[get_today_park_factors] Error fetching weather for game {game_id}: {error}"
+        )
+    return game, weather, roof_status_assumption
+
+
+async def get_today_park_factors() -> dict[str, Any]:
     today_date = season_context.reference_date()
     cache_key = f"{PARK_FACTORS_CACHE_PREFIX}:{today_date.isoformat()}"
     cached_payload = get_ttl_cache(cache_key)
@@ -568,7 +592,7 @@ def get_today_park_factors() -> dict[str, Any]:
     }
 
     try:
-        raw_games = mlb_stats_client.get_schedule(
+        raw_games = await mlb_stats_client.get_schedule_async(
             start_date=today_date.isoformat(),
             end_date=today_date.isoformat(),
         )
@@ -579,7 +603,7 @@ def get_today_park_factors() -> dict[str, Any]:
     if not raw_games:
         return set_ttl_cache(cache_key, response_payload, PARK_FACTORS_TTL_SECONDS)
 
-    processed_games: list[dict[str, Any]] = []
+    eligible_games: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for game in raw_games:
         status = game.get("status")
         if not _is_eligible_game_status(status):
@@ -596,22 +620,23 @@ def get_today_park_factors() -> dict[str, Any]:
             print(f"[get_today_park_factors] Missing park metadata for game {game_id}")
             continue
 
-        weather = None
-        roof_status_assumption = (
-            "open" if park["roof_type"] != "fixed_dome" else "closed"
-        )
-        try:
-            forecast = weather_client.get_forecast_for_park(
-                park["lat"],
-                park["lon"],
-                today_date,
+        eligible_games.append((game, park))
+
+    weather_tasks = [
+        _fetch_weather_for_game(game, park, today_date) for game, park in eligible_games
+    ]
+    weather_results = await asyncio.gather(*weather_tasks, return_exceptions=True)
+
+    processed_games: list[dict[str, Any]] = []
+    for idx, result in enumerate(weather_results):
+        game, park = eligible_games[idx]
+        if isinstance(result, Exception):
+            weather = None
+            roof_status_assumption = (
+                "open" if park["roof_type"] != "fixed_dome" else "closed"
             )
-            weather = _select_first_pitch_weather(forecast, game.get("game_datetime"))
-            roof_status_assumption = _determine_roof_status(park, weather)
-        except Exception as error:
-            print(
-                f"[get_today_park_factors] Error fetching weather for game {game_id}: {error}"
-            )
+        else:
+            _, weather, roof_status_assumption = result
 
         weather_effects = _calculate_weather_effects(
             park,

@@ -1,47 +1,55 @@
-import statsapi
 import asyncio
 from typing import Dict, List, Any, Optional
-import requests
+
+import aiohttp
+import statsapi
 from async_lru import alru_cache
-from functools import lru_cache
+
+from app.clients.http_session import get_session
 
 MLB_API_BASE_URL = "https://statsapi.mlb.com/api/v1"
-MLB_API_TIMEOUT = 10
 
 
-def _mlb_get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    response = requests.get(
-        f"{MLB_API_BASE_URL}{path}",
-        params={k: v for k, v in (params or {}).items() if v is not None},
-        timeout=MLB_API_TIMEOUT,
-    )
-    response.raise_for_status()
-    return response.json()
+async def _mlb_get(
+    path: str, params: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    session = await get_session()
+    filtered_params = {k: v for k, v in (params or {}).items() if v is not None}
+    async with session.get(
+        f"{MLB_API_BASE_URL}{path}", params=filtered_params
+    ) as response:
+        response.raise_for_status()
+        return await response.json()
+
+
+async def _mlb_get_raw(
+    url: str, params: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    session = await get_session()
+    filtered_params = {k: v for k, v in (params or {}).items() if v is not None}
+    async with session.get(url, params=filtered_params) as response:
+        response.raise_for_status()
+        return await response.json()
+
 
 def get_game_data(game_pk: int) -> Dict[str, Any]:
-    """Fetches raw game data using statsapi.get."""
     try:
         return statsapi.get("game", {"gamePk": game_pk})
     except Exception as e:
         print(f"Error fetching game data for gamePk {game_pk}: {e}")
         raise
 
-def get_player_stats(
+
+async def get_player_stats(
     player_id: int, group: str, type: str, season: Optional[str] = None
-) -> str: 
-    """Fetches player stats using statsapi.player_stats."""
-    # NOTE: python-mlb-statsapi (installed here) does not accept a `season`
-    # kwarg for statsapi.player_stats. For pinned-season requests we call the
-    # MLB Stats API endpoint directly and return a compatible text payload.
+) -> str:
     if season:
         url = (
             f"https://statsapi.mlb.com/api/v1/people/{player_id}/stats"
             f"?stats={type}&group={group}&season={season}"
         )
         try:
-            response = requests.get(url, timeout=MLB_API_TIMEOUT)
-            response.raise_for_status()
-            data = response.json()
+            data = await _mlb_get_raw(url)
             stats_list = data.get("stats", [])
             if not stats_list:
                 return ""
@@ -54,7 +62,7 @@ def get_player_stats(
                 f"Losses: {stat.get('losses', 'TBD')}\n"
                 f"ERA: {stat.get('era', 'TBD')}"
             )
-        except requests.exceptions.RequestException as e:
+        except aiohttp.ClientResponseError as e:
             print(
                 f"Error fetching season player stats for player {player_id}, "
                 f"season {season}: {e}"
@@ -63,43 +71,36 @@ def get_player_stats(
 
     params = {"personId": player_id, "group": group, "type": type}
     try:
-        return statsapi.player_stats(**params) 
+        return await asyncio.to_thread(statsapi.player_stats, **params)
     except Exception as e:
         print(f"Error fetching player stats for player {player_id}: {e}")
         raise
 
+
 def lookup_player(query: str) -> List[Dict[str, Any]]:
-    """Looks up a player by name using statsapi.lookup_player."""
     try:
         return statsapi.lookup_player(query)
     except Exception as e:
         print(f"Error looking up player with query '{query}': {e}")
         raise
 
-@lru_cache(maxsize=512)
-def get_player_h2h_stats(batter_id: int, pitcher_id: int) -> Optional[Dict[str, Any]]:
-    """
-    Fetches and extracts relevant *career total* H2H stats for a batter vs a pitcher.
 
-    Args:
-        batter_id: The MLBAM ID of the batter.
-        pitcher_id: The MLBAM ID of the pitcher.
+async def lookup_player_async(query: str) -> List[Dict[str, Any]]:
+    return await asyncio.to_thread(lookup_player, query)
 
-    Returns:
-        A dictionary with relevant H2H stats (PA, AB, H, HR, RBI, BB, SO, AVG, OBP, SLG, OPS)
-        or None if no H2H data is found or an error occurs.
-        Returns a dict like {"PA": 0} if the API call succeeds but there's no history.
-    """
+
+@alru_cache(maxsize=512)
+async def get_player_h2h_stats(
+    batter_id: int, pitcher_id: int
+) -> Optional[Dict[str, Any]]:
     url = f"https://statsapi.mlb.com/api/v1/people/{batter_id}/stats?stats=vsTeamTotal&group=hitting&opposingPlayerId={pitcher_id}&language=en"
 
     try:
-        response = requests.get(url, timeout=MLB_API_TIMEOUT)
-        response.raise_for_status()
-        data = response.json()
+        data = await _mlb_get_raw(url)
 
         stats_list = data.get("stats", [])
         if not stats_list:
-            return {"PA": 0} 
+            return {"PA": 0}
 
         total_stats_data = None
         for stat_entry in stats_list:
@@ -109,7 +110,7 @@ def get_player_h2h_stats(batter_id: int, pitcher_id: int) -> Optional[Dict[str, 
                 break
 
         if not total_stats_data:
-            return {"PA": 0} 
+            return {"PA": 0}
 
         splits = total_stats_data.get("splits", [])
         if not splits:
@@ -117,8 +118,8 @@ def get_player_h2h_stats(batter_id: int, pitcher_id: int) -> Optional[Dict[str, 
 
         raw_stats = splits[0].get("stat", {})
         if not raw_stats or raw_stats.get("plateAppearances", 0) == 0:
-             return {"PA": 0}
-        relevant_stats = {
+            return {"PA": 0}
+        return {
             "PA": raw_stats.get("plateAppearances"),
             "AB": raw_stats.get("atBats"),
             "H": raw_stats.get("hits"),
@@ -133,26 +134,30 @@ def get_player_h2h_stats(batter_id: int, pitcher_id: int) -> Optional[Dict[str, 
             "SLG": raw_stats.get("slg"),
             "OPS": raw_stats.get("ops"),
         }
-        return relevant_stats
 
-    except requests.exceptions.Timeout:
-        print(f"Timeout fetching H2H stats for batter {batter_id} vs pitcher {pitcher_id}")
-        return None 
-    except requests.exceptions.RequestException as e:
-        status_code = e.response.status_code if e.response is not None else "N/A"
-        print(f"Error fetching H2H stats for batter {batter_id} vs pitcher {pitcher_id} (Status: {status_code}): {e}")
-        if status_code == 404: 
-             return {"error": "Not Found"}
-        return None 
+    except asyncio.TimeoutError:
+        print(
+            f"Timeout fetching H2H stats for batter {batter_id} vs pitcher {pitcher_id}"
+        )
+        return None
+    except aiohttp.ClientResponseError as e:
+        status_code = e.status
+        print(
+            f"Error fetching H2H stats for batter {batter_id} vs pitcher {pitcher_id} (Status: {status_code}): {e}"
+        )
+        if status_code == 404:
+            return {"error": "Not Found"}
+        return None
     except (KeyError, IndexError, TypeError, AttributeError) as e:
-        print(f"Error parsing H2H JSON for batter {batter_id} vs pitcher {pitcher_id}: {e}")
-        return None 
+        print(
+            f"Error parsing H2H JSON for batter {batter_id} vs pitcher {pitcher_id}: {e}"
+        )
+        return None
 
 
 def get_schedule(
     start_date: str, end_date: Optional[str] = None, team_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
-    """Fetches schedule using statsapi.schedule."""
     params = {"start_date": start_date}
     if end_date:
         params["end_date"] = end_date
@@ -165,37 +170,39 @@ def get_schedule(
         raise
 
 
-def get_player_info_with_stats(player_id: int, season: str) -> Dict[str, Any]:
-    """Fetches player info hydrated with season stats using a direct API call."""
+async def get_player_info_with_stats(player_id: int, season: str) -> Dict[str, Any]:
     url = f"https://statsapi.mlb.com/api/v1/people/{player_id}?hydrate=stats(group=[hitting,pitching],type=[season],season={season})"
     try:
-        response = requests.get(url, timeout=MLB_API_TIMEOUT)
-        response.raise_for_status() 
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching player info/stats for player {player_id}, season {season}: {e}")
-        raise 
+        return await _mlb_get_raw(url)
+    except aiohttp.ClientResponseError as e:
+        print(
+            f"Error fetching player info/stats for player {player_id}, season {season}: {e}"
+        )
+        raise
+
 
 def get_player_stat_data(player_id: int, group: str, type: str) -> Dict[str, Any]:
-    """Fetches player stat data using statsapi.player_stat_data."""
     params = {"personId": player_id, "group": group, "type": type}
     try:
         return statsapi.player_stat_data(**params)
     except Exception as e:
-        print(f"Error fetching player stat data for player {player_id}, group {group}, type {type}: {e}")
+        print(
+            f"Error fetching player stat data for player {player_id}, group {group}, type {type}: {e}"
+        )
         raise
 
-def get_standings(
+
+async def get_player_stat_data_async(
+    player_id: int, group: str, type: str
+) -> Dict[str, Any]:
+    return await asyncio.to_thread(get_player_stat_data, player_id, group, type)
+
+
+async def get_standings(
     league_id: str = "103,104",
     date: Optional[str] = None,
     season: Optional[str] = None,
 ) -> Dict:
-    """Fetch and normalize standings data with an explicit request timeout.
-
-    The third-party statsapi.standings_data helper does not set a request
-    timeout. On Railway that can hang long enough for Gunicorn to kill the
-    worker, so this wrapper calls the MLB endpoint directly.
-    """
     params = {
         "leagueId": league_id,
         "season": season,
@@ -212,13 +219,10 @@ def get_standings(
     if date:
         params["date"] = date
     try:
-        response = requests.get(
+        payload = await _mlb_get_raw(
             "https://statsapi.mlb.com/api/v1/standings",
             params={k: v for k, v in params.items() if v is not None},
-            timeout=10,
         )
-        response.raise_for_status()
-        payload = response.json()
 
         divisions = {}
         for record in payload.get("records", []):
@@ -243,7 +247,9 @@ def get_standings(
                         "gb": team_record.get("gamesBack"),
                         "wc_rank": team_record.get("wildCardRank", "-"),
                         "wc_gb": team_record.get("wildCardGamesBack", "-"),
-                        "wc_elim_num": team_record.get("wildCardEliminationNumber", "-"),
+                        "wc_elim_num": team_record.get(
+                            "wildCardEliminationNumber", "-"
+                        ),
                         "elim_num": team_record.get("eliminationNumber", "-"),
                         "team_id": team_record.get("team", {}).get("id"),
                         "league_rank": team_record.get("leagueRank", "-"),
@@ -256,14 +262,13 @@ def get_standings(
         print(f"Error fetching standings data with params {params}: {e}")
         raise
 
+
 async def get_schedule_async(
     start_date: str, end_date: Optional[str] = None, team_id: Optional[int] = None
 ) -> List[Dict[str, Any]]:
-    """Fetches schedule asynchronously using asyncio.to_thread."""
-    # Filtering is currently done in schedule_service.py
     return await asyncio.to_thread(get_schedule, start_date, end_date, team_id)
+
 
 @alru_cache(maxsize=128)
 async def get_game_data_async(game_pk: int) -> Dict[str, Any]:
-    """Fetches raw game data asynchronously using asyncio.to_thread."""
-    return await asyncio.to_thread(get_game_data, game_pk) 
+    return await asyncio.to_thread(get_game_data, game_pk)

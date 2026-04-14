@@ -1,14 +1,11 @@
 import asyncio
 import datetime
-from logging import debug
 from typing import Dict, List, Any, Optional
 
-from flask import jsonify
 import statsapi
 from app.clients import mlb_stats_client
 from cache import SCHEDULE_CACHE
 import pytz
-from functools import lru_cache
 from app.services import player_service
 from app.utils import helpers
 from async_lru import alru_cache
@@ -55,8 +52,9 @@ async def fetch_and_cache_game_ids_span(
         A list of game IDs.
     """
     cache_key = f"{team_id}_{num_days}"
-    if cache_key in SCHEDULE_CACHE:
-        return [game["game_id"] for game in SCHEDULE_CACHE[cache_key]]
+    cached = SCHEDULE_CACHE.get(cache_key)
+    if cached is not None:
+        return [game["game_id"] for game in cached]
 
     base_date = season_context.reference_date()
     date_format = "%m/%d/%Y"
@@ -83,7 +81,7 @@ async def fetch_and_cache_game_ids_span(
         for games_chunk in results:
             all_games.extend(games_chunk)
 
-    SCHEDULE_CACHE[cache_key] = all_games
+    SCHEDULE_CACHE.set(cache_key, all_games)
 
     return [game["game_id"] for game in all_games]
 
@@ -138,7 +136,7 @@ def _build_completed_game_payload(
     }
 
 
-def _get_completed_results_for_date(
+async def _get_completed_results_for_date(
     target_date: datetime.date,
     cache_prefix: str = COMPLETED_RESULTS_CACHE_PREFIX,
     ttl_seconds: int = COMPLETED_RESULTS_TTL_SECONDS,
@@ -152,8 +150,8 @@ def _get_completed_results_for_date(
     processed_games = []
 
     try:
-        team_records = _get_team_records_from_standings(target_date)
-        raw_games = mlb_stats_client.get_schedule(
+        team_records = await _get_team_records_from_standings(target_date)
+        raw_games = await mlb_stats_client.get_schedule_async(
             start_date=target_date_str,
             end_date=target_date_str,
         )
@@ -186,7 +184,7 @@ def _get_completed_results_for_date(
         return []
 
 
-def _get_team_records_from_standings(
+async def _get_team_records_from_standings(
     standings_date: Optional[datetime.date] = None,
 ) -> Dict[int, str]:
     """Fetches current standings and returns a dict mapping team ID to 'W-L' record."""
@@ -198,7 +196,7 @@ def _get_team_records_from_standings(
 
     records = {}
     try:
-        standings_data = mlb_stats_client.get_standings(
+        standings_data = await mlb_stats_client.get_standings(
             league_id="103,104",
             date=effective_date.strftime("%Y-%m-%d"),
             season=season_context.active_season_year(effective_date),
@@ -221,31 +219,35 @@ def _get_team_records_from_standings(
     return set_ttl_cache(cache_key, records, TEAM_RECORDS_TTL_SECONDS)
 
 
-def get_yesterday_results() -> List[Dict[str, Any]]:
+async def get_yesterday_results() -> List[Dict[str, Any]]:
     """Gets completed MLB results for yesterday with team logos and records."""
     yesterday_date = season_context.reference_date() - datetime.timedelta(days=1)
-    return _get_completed_results_for_date(
+    return await _get_completed_results_for_date(
         yesterday_date,
         cache_prefix=YESTERDAY_RESULTS_CACHE_PREFIX,
         ttl_seconds=YESTERDAY_RESULTS_TTL_SECONDS,
     )
 
 
-def get_recent_results() -> Dict[str, List[Dict[str, Any]]]:
+async def get_recent_results() -> Dict[str, List[Dict[str, Any]]]:
     """Gets completed MLB results for today and yesterday."""
     today_date = season_context.reference_date()
     yesterday_date = today_date - datetime.timedelta(days=1)
 
-    return {
-        "today": _get_completed_results_for_date(today_date),
-        "yesterday": _get_completed_results_for_date(
+    today_results, yesterday_results = await asyncio.gather(
+        _get_completed_results_for_date(today_date),
+        _get_completed_results_for_date(
             yesterday_date,
             cache_prefix=YESTERDAY_RESULTS_CACHE_PREFIX,
         ),
+    )
+    return {
+        "today": today_results,
+        "yesterday": yesterday_results,
     }
 
 
-def get_today_schedule() -> List[Dict]:
+async def get_today_schedule() -> List[Dict]:
     """Gets the schedule for today, including pitcher info and team records."""
     today_date = season_context.reference_date()
     cache_key = f"{TODAY_SCHEDULE_CACHE_PREFIX}:{today_date.isoformat()}"
@@ -255,10 +257,10 @@ def get_today_schedule() -> List[Dict]:
 
     processed_games = []
     try:
-        team_records = _get_team_records_from_standings()
+        team_records = await _get_team_records_from_standings()
         today_date_str = today_date.strftime("%Y-%m-%d")
         include_completed_games = today_date < datetime.date.today()
-        raw_games = mlb_stats_client.get_schedule(start_date=today_date_str)
+        raw_games = await mlb_stats_client.get_schedule_async(start_date=today_date_str)
         if not raw_games:
             return []
 
@@ -294,7 +296,9 @@ def get_today_schedule() -> List[Dict]:
                 away_record_str = team_records.get(away_id, "0-0")
                 home_record_str = team_records.get(home_id, "0-0")
 
-                pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
+                pitcher_info = await player_service.fetch_and_cache_pitcher_info(
+                    game_id
+                )
 
                 processed_game = {
                     "game_id": game_id,
@@ -324,8 +328,8 @@ def get_today_schedule() -> List[Dict]:
         return []
 
 
-@lru_cache(maxsize=1)
-def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
+@alru_cache(maxsize=1)
+async def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
     """Gets historical schedule for a team up to num_days ago, including pitcher info and team records."""
     base_date = season_context.reference_date()
     date_format = "%Y-%m-%d"
@@ -339,7 +343,7 @@ def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
     formatted_end_date = base_date.strftime(date_format)
 
     try:
-        team_records = _get_team_records_from_standings()
+        team_records = await _get_team_records_from_standings()
         schedule_summary = mlb_stats_client.get_schedule(
             start_date=formatted_start_date,
             end_date=formatted_end_date,
@@ -373,7 +377,9 @@ def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
                     home_id, "0-0"
                 )  # Default if lookup fails
 
-                pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
+                pitcher_info = await player_service.fetch_and_cache_pitcher_info(
+                    game_id
+                )
                 game_time_utc_str = game.get("game_datetime")
                 processed_game = {
                     "game_id": game_id,
@@ -402,8 +408,8 @@ def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict]:
         return []
 
 
-@lru_cache(maxsize=128)
-def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
+@alru_cache(maxsize=128)
+async def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
     """Gets the upcoming schedule (today or tomorrow) for a team, including pitcher info and team records."""
     base_date = season_context.reference_date()
     date_format = "%Y-%m-%d"
@@ -413,7 +419,7 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
     games_with_pitcher_info = []
 
     try:
-        team_records = _get_team_records_from_standings()
+        team_records = await _get_team_records_from_standings()
 
         todays_games = mlb_stats_client.get_schedule(
             start_date=formatted_today, end_date=formatted_today, team_id=team_param
@@ -438,7 +444,9 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
 
                     away_record_str = team_records.get(away_id, "0-0")
                     home_record_str = team_records.get(home_id, "0-0")
-                    pitcher_info = player_service.fetch_and_cache_pitcher_info(game_id)
+                    pitcher_info = await player_service.fetch_and_cache_pitcher_info(
+                        game_id
+                    )
                     game_time_utc_str = game.get("game_datetime")
 
                     processed_game = {
@@ -487,8 +495,8 @@ def get_next_game_schedule_for_team(team_id: int) -> List[Dict]:
 
                         away_record_str = team_records.get(away_id, "0-0")
                         home_record_str = team_records.get(home_id, "0-0")
-                        pitcher_info = player_service.fetch_and_cache_pitcher_info(
-                            game_id
+                        pitcher_info = (
+                            await player_service.fetch_and_cache_pitcher_info(game_id)
                         )
                         game_time_utc_str = game.get("game_datetime")
 

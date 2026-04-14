@@ -1,10 +1,11 @@
+import asyncio
 import datetime
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from app import create_app
 from app.services import park_factor_service
-from cache import TTL_CACHE
+from cache import _ttl_cache
 
 
 def _forecast_payload(
@@ -46,13 +47,16 @@ def _forecast_payload(
 
 class ParkFactorServiceTests(unittest.TestCase):
     def setUp(self):
-        TTL_CACHE.clear()
+        _ttl_cache.clear()
 
     def tearDown(self):
-        TTL_CACHE.clear()
+        _ttl_cache.clear()
 
     @patch("app.services.park_factor_service.season_context.reference_date")
-    @patch("app.services.park_factor_service.weather_client.get_forecast_for_park")
+    @patch(
+        "app.services.park_factor_service.weather_client.get_forecast_for_park",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.park_factor_service.mlb_stats_client.get_schedule")
     def test_get_today_park_factors_returns_card_payload_for_scheduled_and_in_progress_games(
         self,
@@ -126,7 +130,7 @@ class ParkFactorServiceTests(unittest.TestCase):
             ),
         ]
 
-        payload = park_factor_service.get_today_park_factors()
+        payload = asyncio.run(park_factor_service.get_today_park_factors())
 
         self.assertEqual(payload["date"], "2026-04-10")
         self.assertEqual([game["game_id"] for game in payload["games"]], [1, 2])
@@ -158,7 +162,10 @@ class ParkFactorServiceTests(unittest.TestCase):
         self.assertEqual(highlights["windiest_game"]["game_id"], 2)
 
     @patch("app.services.park_factor_service.season_context.reference_date")
-    @patch("app.services.park_factor_service.weather_client.get_forecast_for_park")
+    @patch(
+        "app.services.park_factor_service.weather_client.get_forecast_for_park",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.park_factor_service.mlb_stats_client.get_schedule")
     def test_get_today_park_factors_falls_back_to_stadium_only_when_weather_fails(
         self,
@@ -181,7 +188,7 @@ class ParkFactorServiceTests(unittest.TestCase):
         ]
         mock_get_forecast.side_effect = RuntimeError("weather unavailable")
 
-        payload = park_factor_service.get_today_park_factors()
+        payload = asyncio.run(park_factor_service.get_today_park_factors())
 
         self.assertEqual(len(payload["games"]), 1)
         game = payload["games"][0]
@@ -198,7 +205,10 @@ class ParkFactorServiceTests(unittest.TestCase):
         )
 
     @patch("app.services.park_factor_service.season_context.reference_date")
-    @patch("app.services.park_factor_service.weather_client.get_forecast_for_park")
+    @patch(
+        "app.services.park_factor_service.weather_client.get_forecast_for_park",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.park_factor_service.mlb_stats_client.get_schedule")
     def test_get_today_park_factors_uses_cache_for_repeat_calls(
         self,
@@ -233,15 +243,18 @@ class ParkFactorServiceTests(unittest.TestCase):
             temp_min_f=60,
         )
 
-        first_payload = park_factor_service.get_today_park_factors()
-        second_payload = park_factor_service.get_today_park_factors()
+        first_payload = asyncio.run(park_factor_service.get_today_park_factors())
+        second_payload = asyncio.run(park_factor_service.get_today_park_factors())
 
         self.assertEqual(first_payload, second_payload)
         self.assertEqual(mock_get_schedule.call_count, 1)
         self.assertEqual(mock_get_forecast.call_count, 1)
 
     @patch("app.services.park_factor_service.season_context.reference_date")
-    @patch("app.services.park_factor_service.weather_client.get_forecast_for_park")
+    @patch(
+        "app.services.park_factor_service.weather_client.get_forecast_for_park",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.park_factor_service.mlb_stats_client.get_schedule")
     def test_wind_in_produces_negative_hr_and_2b3b_effects(
         self,
@@ -276,7 +289,7 @@ class ParkFactorServiceTests(unittest.TestCase):
             temp_min_f=38,
         )
 
-        payload = park_factor_service.get_today_park_factors()
+        payload = asyncio.run(park_factor_service.get_today_park_factors())
         game = payload["games"][0]
 
         self.assertLess(game["factors"]["weather_hr_pct"], 0)
@@ -287,7 +300,10 @@ class ParkFactorServiceTests(unittest.TestCase):
         self.assertIn("wind_sensitive_park", game["traits"])
 
     @patch("app.services.park_factor_service.season_context.reference_date")
-    @patch("app.services.park_factor_service.weather_client.get_forecast_for_park")
+    @patch(
+        "app.services.park_factor_service.weather_client.get_forecast_for_park",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.park_factor_service.mlb_stats_client.get_schedule")
     def test_retractable_roof_dampening_near_zero_when_closed(
         self,
@@ -322,7 +338,7 @@ class ParkFactorServiceTests(unittest.TestCase):
             temp_min_f=35,
         )
 
-        payload = park_factor_service.get_today_park_factors()
+        payload = asyncio.run(park_factor_service.get_today_park_factors())
         game = payload["games"][0]
 
         self.assertEqual(game["venue"]["roof_status_assumption"], "closed")
@@ -331,7 +347,10 @@ class ParkFactorServiceTests(unittest.TestCase):
         self.assertAlmostEqual(abs(game["factors"]["weather_hr_pct"]), 0, delta=2)
 
     @patch("app.services.park_factor_service.season_context.reference_date")
-    @patch("app.services.park_factor_service.weather_client.get_forecast_for_park")
+    @patch(
+        "app.services.park_factor_service.weather_client.get_forecast_for_park",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.park_factor_service.mlb_stats_client.get_schedule")
     def test_high_humidity_suppresses_hr_carry(
         self,
@@ -366,14 +385,17 @@ class ParkFactorServiceTests(unittest.TestCase):
             temp_min_f=62,
         )
 
-        payload = park_factor_service.get_today_park_factors()
+        payload = asyncio.run(park_factor_service.get_today_park_factors())
         game = payload["games"][0]
 
         self.assertEqual(game["weather"]["humidity_pct"], 85)
         self.assertLess(game["factors"]["weather_hr_pct"], 0)
 
     @patch("app.services.park_factor_service.season_context.reference_date")
-    @patch("app.services.park_factor_service.weather_client.get_forecast_for_park")
+    @patch(
+        "app.services.park_factor_service.weather_client.get_forecast_for_park",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.park_factor_service.mlb_stats_client.get_schedule")
     def test_scaled_precipitation_penalty_increases_with_probability(
         self,
@@ -408,7 +430,7 @@ class ParkFactorServiceTests(unittest.TestCase):
             temp_min_f=58,
         )
 
-        payload = park_factor_service.get_today_park_factors()
+        payload = asyncio.run(park_factor_service.get_today_park_factors())
         game = payload["games"][0]
 
         self.assertIn("rain_risk", game["traits"])
@@ -416,7 +438,10 @@ class ParkFactorServiceTests(unittest.TestCase):
         self.assertLess(game["factors"]["weather_hr_pct"], 0)
 
     @patch("app.services.park_factor_service.season_context.reference_date")
-    @patch("app.services.park_factor_service.weather_client.get_forecast_for_park")
+    @patch(
+        "app.services.park_factor_service.weather_client.get_forecast_for_park",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.park_factor_service.mlb_stats_client.get_schedule")
     def test_wind_gusts_amplify_wind_effect_beyond_speed_alone(
         self,
@@ -451,7 +476,7 @@ class ParkFactorServiceTests(unittest.TestCase):
             temp_min_f=60,
         )
 
-        payload = park_factor_service.get_today_park_factors()
+        payload = asyncio.run(park_factor_service.get_today_park_factors())
         game = payload["games"][0]
 
         self.assertEqual(game["factors"]["stadium_hr_pct"], 1)
@@ -465,7 +490,10 @@ class ParkFactorsRouteTests(unittest.TestCase):
         self.app = create_app("test")
         self.client = self.app.test_client()
 
-    @patch("app.api.park_factors.park_factor_service.get_today_park_factors")
+    @patch(
+        "app.api.park_factors.park_factor_service.get_today_park_factors",
+        new_callable=AsyncMock,
+    )
     def test_park_factors_route_returns_json(self, mock_get_today_park_factors):
         mock_get_today_park_factors.return_value = {
             "date": "2026-04-10",

@@ -20,11 +20,12 @@ def fetch_and_cache_linescore(game_id: int) -> List[Dict]:
 
 async def fetch_single_game_details(game_id: int) -> dict:
     """Fetches details for a single game, utilizing cache."""
-    if game_id in GAME_CACHE:
-        return GAME_CACHE[game_id]
+    cached = GAME_CACHE.get(game_id)
+    if cached is not None:
+        return cached
 
     game_data = await mlb_stats_client.get_game_data_async(game_pk=game_id)
-    GAME_CACHE[game_id] = game_data  # Cache the result
+    GAME_CACHE.set(game_id, game_data)
     return game_data
 
 

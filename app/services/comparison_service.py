@@ -32,7 +32,7 @@ async def _fetch_game_context(game_id: int) -> Dict[str, Any]:
     venue_info = game_data.get("venue", {})
     status_info = game_data.get("status", {})
 
-    pitcher_details = player_service.fetch_and_cache_pitcher_info(
+    pitcher_details = await player_service.fetch_and_cache_pitcher_info(
         game_id, raw_game_data
     )
     away_pitcher_id = pitcher_details.get("awayPitcherID")
@@ -101,8 +101,7 @@ def _build_h2h_tasks(
             player_id = player.get("id")
             if player_id:
                 tasks_to_run.append(
-                    asyncio.to_thread(
-                        mlb_stats_client.get_player_h2h_stats,
+                    mlb_stats_client.get_player_h2h_stats(
                         player_id,
                         home_pitcher_id,
                     )
@@ -114,8 +113,7 @@ def _build_h2h_tasks(
             player_id = player.get("id")
             if player_id:
                 tasks_to_run.append(
-                    asyncio.to_thread(
-                        mlb_stats_client.get_player_h2h_stats,
+                    mlb_stats_client.get_player_h2h_stats(
                         player_id,
                         away_pitcher_id,
                     )

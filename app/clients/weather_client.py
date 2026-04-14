@@ -2,8 +2,7 @@ import datetime
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-import requests
-
+from app.clients.http_session import get_session
 from cache import get_ttl_cache, set_ttl_cache
 
 OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -62,7 +61,7 @@ def _parse_daily_entries(
     return entries
 
 
-def get_forecast_for_park(
+async def get_forecast_for_park(
     lat: float,
     lon: float,
     target_date: Optional[datetime.date] = None,
@@ -85,12 +84,11 @@ def get_forecast_for_park(
         "start_date": effective_date.isoformat(),
         "end_date": effective_date.isoformat(),
     }
-    response = requests.get(
-        OPEN_METEO_FORECAST_URL, params=params, timeout=OPEN_METEO_TIMEOUT_SECONDS
-    )
-    response.raise_for_status()
+    session = await get_session()
+    async with session.get(OPEN_METEO_FORECAST_URL, params=params) as response:
+        response.raise_for_status()
+        payload = await response.json()
 
-    payload = response.json()
     timezone_name = payload.get("timezone", "UTC")
     try:
         ZoneInfo(timezone_name)

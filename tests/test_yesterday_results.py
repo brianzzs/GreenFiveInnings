@@ -1,10 +1,11 @@
+import asyncio
 import datetime
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from app import create_app
 from app.services import schedule_service
-from cache import TTL_CACHE
+from cache import _ttl_cache
 
 
 def _standings_payload():
@@ -22,13 +23,16 @@ def _standings_payload():
 
 class YesterdayResultsServiceTests(unittest.TestCase):
     def setUp(self):
-        TTL_CACHE.clear()
+        _ttl_cache.clear()
 
     def tearDown(self):
-        TTL_CACHE.clear()
+        _ttl_cache.clear()
 
     @patch("app.services.schedule_service.season_context.reference_date")
-    @patch("app.services.schedule_service.mlb_stats_client.get_standings")
+    @patch(
+        "app.services.schedule_service.mlb_stats_client.get_standings",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.schedule_service.mlb_stats_client.get_schedule")
     def test_get_yesterday_results_returns_completed_games_sorted_and_shaped(
         self,
@@ -77,7 +81,7 @@ class YesterdayResultsServiceTests(unittest.TestCase):
             },
         ]
 
-        results = schedule_service.get_yesterday_results()
+        results = asyncio.run(schedule_service.get_yesterday_results())
 
         self.assertEqual([game["game_id"] for game in results], [2, 1])
         self.assertEqual(results[1]["away_team"]["record"], "1-2")
@@ -92,7 +96,10 @@ class YesterdayResultsServiceTests(unittest.TestCase):
         self.assertEqual(results[0]["status"], "Final")
 
     @patch("app.services.schedule_service.season_context.reference_date")
-    @patch("app.services.schedule_service.mlb_stats_client.get_standings")
+    @patch(
+        "app.services.schedule_service.mlb_stats_client.get_standings",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.schedule_service.mlb_stats_client.get_schedule")
     def test_get_yesterday_results_uses_yesterday_for_standings_lookup(
         self,
@@ -104,12 +111,15 @@ class YesterdayResultsServiceTests(unittest.TestCase):
         mock_get_standings.return_value = _standings_payload()
         mock_get_schedule.return_value = []
 
-        schedule_service.get_yesterday_results()
+        asyncio.run(schedule_service.get_yesterday_results())
 
         self.assertEqual(mock_get_standings.call_args.kwargs["date"], "2026-03-29")
 
     @patch("app.services.schedule_service.season_context.reference_date")
-    @patch("app.services.schedule_service.mlb_stats_client.get_standings")
+    @patch(
+        "app.services.schedule_service.mlb_stats_client.get_standings",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.schedule_service.mlb_stats_client.get_schedule")
     def test_get_yesterday_results_returns_empty_list_when_no_games(
         self,
@@ -121,10 +131,13 @@ class YesterdayResultsServiceTests(unittest.TestCase):
         mock_get_standings.return_value = _standings_payload()
         mock_get_schedule.return_value = []
 
-        self.assertEqual(schedule_service.get_yesterday_results(), [])
+        self.assertEqual(asyncio.run(schedule_service.get_yesterday_results()), [])
 
     @patch("app.services.schedule_service.season_context.reference_date")
-    @patch("app.services.schedule_service.mlb_stats_client.get_standings")
+    @patch(
+        "app.services.schedule_service.mlb_stats_client.get_standings",
+        new_callable=AsyncMock,
+    )
     @patch("app.services.schedule_service.mlb_stats_client.get_schedule")
     def test_get_recent_results_groups_today_and_yesterday(
         self,
@@ -165,12 +178,16 @@ class YesterdayResultsServiceTests(unittest.TestCase):
             ],
         ]
 
-        results = schedule_service.get_recent_results()
+        results = asyncio.run(schedule_service.get_recent_results())
 
         self.assertEqual([game["game_id"] for game in results["today"]], [10])
         self.assertEqual([game["game_id"] for game in results["yesterday"]], [1])
-        self.assertEqual(mock_get_standings.call_args_list[0].kwargs["date"], "2026-03-30")
-        self.assertEqual(mock_get_standings.call_args_list[1].kwargs["date"], "2026-03-29")
+        self.assertEqual(
+            mock_get_standings.call_args_list[0].kwargs["date"], "2026-03-30"
+        )
+        self.assertEqual(
+            mock_get_standings.call_args_list[1].kwargs["date"], "2026-03-29"
+        )
 
 
 class RecentResultsRouteTests(unittest.TestCase):
@@ -178,7 +195,10 @@ class RecentResultsRouteTests(unittest.TestCase):
         self.app = create_app("test")
         self.client = self.app.test_client()
 
-    @patch("app.api.schedule.schedule_service.get_recent_results")
+    @patch(
+        "app.api.schedule.schedule_service.get_recent_results",
+        new_callable=AsyncMock,
+    )
     def test_recent_results_route_returns_json(self, mock_get_recent_results):
         mock_get_recent_results.return_value = {
             "today": [

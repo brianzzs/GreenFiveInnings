@@ -1,0 +1,13 @@
+schema: spec-driven
+
+project_context:
+  tech_stack: Python
+  commits: We use conventional commits
+  domain: fiveinnings.com
+
+rules:
+  proposal:
+    - Keep proposals under 500 words
+    - Always include a "Non-goals" section
+  tasks:
+    - Break tasks into chunks
