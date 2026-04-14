@@ -24,6 +24,7 @@ COMPLETED_RESULTS_CACHE_PREFIX = "completed_results"
 TEAM_RECORDS_TTL_SECONDS = 120
 TODAY_SCHEDULE_TTL_SECONDS = 30
 YESTERDAY_RESULTS_TTL_SECONDS = 10800
+COMPLETED_RESULTS_TTL_SECONDS = 1800
 
 
 async def fetch_schedule(date, team_id):
@@ -140,6 +141,7 @@ def _build_completed_game_payload(
 def _get_completed_results_for_date(
     target_date: datetime.date,
     cache_prefix: str = COMPLETED_RESULTS_CACHE_PREFIX,
+    ttl_seconds: int = COMPLETED_RESULTS_TTL_SECONDS,
 ) -> List[Dict[str, Any]]:
     target_date_str = target_date.strftime("%Y-%m-%d")
     cache_key = f"{cache_prefix}:{target_date.isoformat()}"
@@ -156,7 +158,7 @@ def _get_completed_results_for_date(
             end_date=target_date_str,
         )
         if not raw_games:
-            return set_ttl_cache(cache_key, [], YESTERDAY_RESULTS_TTL_SECONDS)
+            return set_ttl_cache(cache_key, [], ttl_seconds)
 
         for game in raw_games:
             try:
@@ -176,7 +178,7 @@ def _get_completed_results_for_date(
             key=lambda game: game.get("game_datetime") or "",
             reverse=True,
         )
-        return set_ttl_cache(cache_key, processed_games, YESTERDAY_RESULTS_TTL_SECONDS)
+        return set_ttl_cache(cache_key, processed_games, ttl_seconds)
     except Exception as e:
         print(
             f"[_get_completed_results_for_date] Error fetching completed results for {target_date_str}: {e}"
@@ -225,6 +227,7 @@ def get_yesterday_results() -> List[Dict[str, Any]]:
     return _get_completed_results_for_date(
         yesterday_date,
         cache_prefix=YESTERDAY_RESULTS_CACHE_PREFIX,
+        ttl_seconds=YESTERDAY_RESULTS_TTL_SECONDS,
     )
 
 
