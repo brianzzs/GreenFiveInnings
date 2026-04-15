@@ -1,1 +1,1 @@
-web: gunicorn run:app --worker-class gthread --workers 2 --threads 4 --timeout 60 --graceful-timeout 15 --keep-alive 5
+web: uvicorn asgi:application --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 5

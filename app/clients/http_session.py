@@ -3,47 +3,56 @@ import threading
 
 import aiohttp
 
-_loop_sessions: dict[int, aiohttp.ClientSession] = {}
+_sessions: dict[asyncio.AbstractEventLoop, aiohttp.ClientSession] = {}
 _lock = threading.Lock()
 
 
-def _create_connector() -> aiohttp.TCPConnector:
-    return aiohttp.TCPConnector(limit=20)
+def _build_session() -> aiohttp.ClientSession:
+    return aiohttp.ClientSession(
+        connector=aiohttp.TCPConnector(limit=20),
+        timeout=aiohttp.ClientTimeout(total=10),
+    )
+
+
+def _pop_stale_sessions() -> list[aiohttp.ClientSession]:
+    stale_sessions: list[aiohttp.ClientSession] = []
+    with _lock:
+        for loop, session in list(_sessions.items()):
+            if session.closed or loop.is_closed():
+                _sessions.pop(loop, None)
+                if not session.closed:
+                    stale_sessions.append(session)
+    return stale_sessions
 
 
 async def get_session() -> aiohttp.ClientSession:
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.get_event_loop()
-    loop_id = id(loop)
+    loop = asyncio.get_running_loop()
+
+    stale_sessions = _pop_stale_sessions()
+    for session in stale_sessions:
+        await session.close()
+
     with _lock:
-        session = _loop_sessions.get(loop_id)
-        if session is None or session.closed:
-            session = aiohttp.ClientSession(
-                connector=_create_connector(),
-                timeout=aiohttp.ClientTimeout(total=10),
-            )
-            _loop_sessions[loop_id] = session
-    return session
+        session = _sessions.get(loop)
+        if session is not None and not session.closed:
+            return session
+
+        session = _build_session()
+        _sessions[loop] = session
+        return session
 
 
 async def close_all_sessions() -> None:
     with _lock:
-        for loop_id in list(_loop_sessions):
-            session = _loop_sessions.pop(loop_id, None)
-            if session and not session.closed:
-                await session.close()
+        sessions = list(_sessions.values())
+        _sessions.clear()
 
-
-def _cleanup_dead_sessions() -> None:
-    with _lock:
-        dead_keys = [k for k, s in _loop_sessions.items() if s.closed]
-        for k in dead_keys:
-            _loop_sessions.pop(k, None)
+    for session in sessions:
+        if not session.closed:
+            await session.close()
 
 
 def register_teardown(app):
     @app.teardown_appcontext
     def _close_aiohttp_session(exception=None):
-        _cleanup_dead_sessions()
+        return None

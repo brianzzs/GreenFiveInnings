@@ -85,9 +85,50 @@ The back-end leverages Python's `asyncio` library to handle multiple API request
 
 ## Deployment
 
-The back-end can be deployed using various platforms such as **Heroku**, **AWS**, or **Docker**. Below are some common deployment options:
+### Production (ASGI)
 
-## Docker
+The canonical production startup command uses **Uvicorn** to serve the Flask app through an ASGI adapter:
+
+```bash
+uvicorn asgi:application --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 5
+```
+
+- **ASGI entrypoint**: `asgi.py` wraps the Flask app via `asgiref.wsgi.WsgiToAsgi`
+- **App factory**: `app/__init__.py:create_app` remains the single source of route and middleware configuration
+- **Railway deploy source**: because this repo has a root `Dockerfile`, Railway will use it by default and start the service with the image `CMD` unless you explicitly override the start command in Railway
+- **Docker start command**: the `Dockerfile` wraps Uvicorn in `sh -c` so `${PORT}` expands correctly on Railway Docker deployments
+- **Procfile** and **Dockerfile** both point at this ASGI command for consistency, but the `Dockerfile` is the authoritative Railway path
+- **Workers**: 2 Uvicorn workers (each single-threaded with a persistent event loop). Adjust based on container memory and CPU; each worker owns its own async session and in-memory caches.
+
+#### Rollback
+
+If ASGI deployment encounters issues, revert to the previous Gunicorn `gthread` command:
+
+```bash
+gunicorn run:app --worker-class gthread --workers 2 --threads 4 --timeout 60 --graceful-timeout 15 --keep-alive 5
+```
+
+This rollback is for manual or non-Docker deployments. Railway will keep using the `Dockerfile` path unless you remove the `Dockerfile` or override the service start/build configuration in Railway.
+
+#### Post-deploy Monitoring
+
+After deploying, monitor for:
+- **Loop errors**: `Future attached to a different loop` or `RuntimeError: Event loop is closed` in logs
+- **Memory pressure**: per-worker memory usage (in-memory caches still grow per worker)
+- **Request latency**: compare p50/p99 against the previous WSGI baseline
+- **Health checks**: confirm `/` responds with 200
+
+### Local Development (ASGI)
+
+For local development, prefer the same ASGI path used in production:
+
+```bash
+uvicorn asgi:application --reload --host 0.0.0.0 --port 8000
+```
+
+This keeps local behavior aligned with production. `python run.py` remains available as a legacy WSGI fallback, but it is no longer the primary development path.
+
+### Docker
 
 For a clean local run without managing Python versions or virtualenvs on your machine:
 

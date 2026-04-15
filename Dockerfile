@@ -14,9 +14,8 @@ COPY . /app
 
 EXPOSE 8000
 
-ENV FLASK_CONFIG=dev \
+ENV FLASK_CONFIG=prod \
     HOST=0.0.0.0 \
-    PORT=8000 \
-    API_KEY_REQUIRED=false
+    PORT=8000
 
-CMD ["gunicorn", "run:app", "--bind", "0.0.0.0:8000", "--worker-class", "gthread", "--workers", "2", "--threads", "8", "--timeout", "30", "--graceful-timeout", "15", "--keep-alive", "5"]
+CMD ["sh", "-c", "uvicorn asgi:application --host 0.0.0.0 --port ${PORT:-8000} --workers 2 --timeout-keep-alive 5"]
