@@ -162,8 +162,9 @@ async def _get_team_stats_summary_by_innings(
 ) -> Dict[str, Any]:
     """Fetches the last N completed games and calculates stats for the requested inning window."""
     try:
+        requested_games = num_games
         game_ids = await schedule_service.fetch_last_n_completed_game_ids(
-            team_id, num_games
+            team_id, num_games + 3
         )
 
         if not game_ids:
@@ -339,6 +340,17 @@ async def _get_team_stats_summary_by_innings(
                         },
                     }
                 )
+
+        if games_processed_count > requested_games:
+            game_nrfi_list = game_nrfi_list[:requested_games]
+            team_nrfi_list = team_nrfi_list[:requested_games]
+            team_runs_by_window_list = team_runs_by_window_list[:requested_games]
+            game_total_list = game_total_list[:requested_games]
+            run_line_diffs = run_line_diffs[:requested_games]
+            moneyline_results_for_calc = moneyline_results_for_calc[:requested_games]
+            if detailed_game_results is not None:
+                detailed_game_results = detailed_game_results[:requested_games]
+            games_processed_count = requested_games
 
         game_nrfi_percentage_calc = (
             sum(1 for did_happen in game_nrfi_list if did_happen)
