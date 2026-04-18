@@ -90,6 +90,10 @@ def _build_team_logo_url(team_id: int) -> str:
     return TEAM_LOGO_URL_TEMPLATE.format(team_id=team_id)
 
 
+def _game_sort_key(game: Dict[str, Any]) -> str:
+    return game.get("game_datetime") or game.get("game_date") or ""
+
+
 def _build_completed_game_payload(
     game: Dict[str, Any],
     team_records: Dict[int, str],
@@ -401,6 +405,7 @@ async def get_schedule_for_team(team_id: int, num_days: int = None) -> List[Dict
                     f"[get_schedule_for_team] Error processing game data: {game}. Error: {inner_e}"
                 )
 
+        games_with_pitcher_info.sort(key=_game_sort_key, reverse=True)
         return games_with_pitcher_info
 
     except Exception as e:
@@ -584,7 +589,7 @@ async def fetch_last_n_completed_game_ids(team_id: int, num_games: int) -> List[
                         {"game_id": game_id, "game_datetime": game["game_datetime"]}
                     )
 
-            completed_games.sort(key=lambda x: x["game_datetime"], reverse=True)
+            completed_games.sort(key=_game_sort_key, reverse=True)
 
             end_date = start_date - datetime.timedelta(days=1)
             total_days_checked += (end_date - start_date).days + 1
