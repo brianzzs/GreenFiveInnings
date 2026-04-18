@@ -17,6 +17,7 @@ from .api.player import player_bp
 from .api.teams import teams_bp
 from .api.comparison import comparison_bp
 from .api.park_factors import park_factors_bp
+from .api.matchup import matchup_bp
 from .clients.http_session import register_teardown as register_aiohttp_teardown
 
 
@@ -124,6 +125,7 @@ def create_app(config_name="default"):
     app.register_blueprint(teams_bp)
     app.register_blueprint(comparison_bp)
     app.register_blueprint(park_factors_bp)
+    app.register_blueprint(matchup_bp)
     app.register_blueprint(league_bp)
     register_aiohttp_teardown(app)
 
