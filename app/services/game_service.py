@@ -38,6 +38,11 @@ async def fetch_game_details_batch(
     return [res for res in results if res is not None]
 
 
+def _game_detail_sort_key(game_detail: Dict[str, Any]) -> str:
+    datetime_data = game_detail.get("gameData", {}).get("datetime", {})
+    return datetime_data.get("dateTime") or datetime_data.get("originalDate") or ""
+
+
 def get_processed_game_data(game_id: int) -> Dict:
     """Fetches and processes basic game data for a given game ID."""
     try:
@@ -176,11 +181,15 @@ async def _get_team_stats_summary_by_innings(
             )
 
         game_details = await fetch_game_details_batch(game_ids)
-        valid_game_details = [
-            gd
-            for gd in game_details
-            if gd and gd.get("gameData") and gd.get("liveData")
-        ]
+        valid_game_details = sorted(
+            [
+                gd
+                for gd in game_details
+                if gd and gd.get("gameData") and gd.get("liveData")
+            ],
+            key=_game_detail_sort_key,
+            reverse=True,
+        )
 
         if not valid_game_details:
             return _build_empty_team_stats_summary(
